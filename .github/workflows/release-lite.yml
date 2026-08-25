@@ -91,4 +91,4 @@ jobs:
           version="${RELEASE_VERSION#v}"
           prerelease_flag=""
           if [[ "$version" == *-* ]]; then prerelease_flag="--prerelease"; fi
-          gh release create "v$version" release/* --title "DCCExpressLite v$version" --generate-notes $prerelease_flag
+          gh release create "v$version" release/* --repo "$GITHUB_REPOSITORY" --title "DCCExpressLite v$version" --generate-notes $prerelease_flag
