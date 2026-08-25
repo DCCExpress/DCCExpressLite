@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="hu">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DCCExpresMicro Filemanager</title>
+  <link href="bootstrap.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+  <div class="container py-5">
+    <h2 class="text-center mb-4">📁 Filemanger</h2>
+
+    <div class="mb-3">
+      <strong>📊 Filesystem info:</strong>
+      <div id="fsInfo">Loading...</div>
+    </div>
+
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Size</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="fileTable"></tbody>
+    </table>
+
+    <div class="mb-3">
+      <input type="file" class="form-control" id="fileInput">
+      <button class="btn btn-primary mt-2" onclick="uploadFile()">📤 Upload</button>
+    </div>
+
+  </div>
+
+  <script>
+
+    let baseUrl = "";
+
+    const isLocal = location.hostname === "localhost" ||  location.hostname === "127.0.0.1" 
+      
+
+    if (isLocal) {
+      baseUrl = "http://192.168.1.143"; 
+    } 
+
+    async function loadFiles() {
+      const res = await fetch(`${baseUrl}/list`);
+      const files = await res.json();
+      const table = document.getElementById('fileTable');
+      table.innerHTML = '';
+      files.forEach(file => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><a href="${file.name}" target="_blank">${file.name}</a></td>
+          <td>${(file.size / 1024).toFixed(2)} KB</td>
+          <td><button class="btn btn-sm btn-danger" onclick="deleteFile('${file.name}')">DELETE</button></td>
+        `;
+        table.appendChild(row);
+      });
+    }
+
+    async function uploadFile() {
+      const input = document.getElementById('fileInput');
+      const file = input.files[0];
+      if (!file) return alert("NNo file selected!");
+
+      const form = new FormData();
+      form.append("file", file, file.name);
+
+      await fetch(`${baseUrl}/upload`, {
+        method: 'POST',
+        body: form
+      });
+
+      input.value = '';
+      loadFiles();
+      loadFsInfo();
+    }
+
+    async function deleteFile(name) {
+      if (!confirm(`BAre you sure: ${name}?`)) return;
+      await fetch(`${baseUrl}/delete?fn=${encodeURIComponent(name)}`);
+      loadFiles();
+      loadFsInfo();
+    }
+
+    async function loadFsInfo() {
+      const res = await fetch(`${baseUrl}/fsinfo`);
+      const info = await res.json();
+      document.getElementById('fsInfo').innerText = `Total: ${info.total} KB, Free: ${info.free} KB`;
+    }
+
+    loadFiles();
+    loadFsInfo();
+  </script>
+</body>
+
+</html>

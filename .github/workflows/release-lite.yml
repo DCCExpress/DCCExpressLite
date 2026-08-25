@@ -1,0 +1,78 @@
+name: DCCExpressLite release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example 1.0.0)
+        required: true
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build firmware and LittleFS
+        run: |
+          pio run -e ESP32
+          pio run -e ESP32 -t buildfs
+      - name: Build firmware release manifest
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          $version = $env:RELEASE_VERSION.TrimStart('v')
+          $base = '${{ github.server_url }}/${{ github.repository }}/releases/download/v' + $version
+          ./installer/tools/New-FirmwareManifest.ps1 -Version $version -BaseUrl $base
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-release
+          path: installer/artifacts/firmware/*
+
+  desktop-installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish cross-platform installers
+        shell: pwsh
+        run: ./installer/tools/Publish-Installers.ps1
+      - name: Pack installers
+        run: |
+          cd installer/artifacts/installer
+          for dir in */; do zip -r "${dir%/}.zip" "$dir"; done
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installers
+          path: installer/artifacts/installer/*.zip
+
+  github-release:
+    needs: [firmware, desktop-installers]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          gh release create "v$version" release/* --title "DCCExpressLite v$version" --generate-notes

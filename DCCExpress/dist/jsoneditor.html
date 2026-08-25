@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JSON Editor</title>
+  <link href="bootstrap.min.css" rel="stylesheet" />
+
+  <style>
+    #jsonArea.console-style {
+      font-family: 'Courier New', Courier, monospace;
+      border: 1px solid #555;
+      padding: 1rem;
+      font-size: 1.1em;
+      line-height: 1.4;
+      border-radius: 0.25rem;
+    }
+
+    #jsonArea.console-style:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, .25);
+    }
+  </style>
+</head>
+
+<body class="p-4">
+  <div class="container">
+    <h1 class="mb-4">📄 JSON Editor</h1>
+
+    <div class="mb-3">
+      <button class="btn btn-outline-secondary" onclick="loadFile('config.json')">Edit config.json</button>
+      <button class="btn btn-outline-secondary" onclick="loadFile('locos.json')">Edit locos.json</button>
+      <button class="btn btn-outline-secondary" onclick="loadFile('turnouts.json')">Edit turnouts.json</button>
+    </div>
+
+    <div class="mb-3">
+      <label for="jsonArea" class="form-label ">JSON content:</label>
+      <textarea id="jsonArea" class="form-control console-style" rows="20"></textarea>
+    </div>
+
+    <button class="btn btn-success" onclick="saveFile()">Save</button>
+
+    <form id="uploadForm" class="d-none" method="POST" enctype="multipart/form-data">
+      <input type="file" name="upload" id="uploadInput" />
+    </form>
+  </div>
+
+  <script>
+    let currentFile = '';
+    let baseUrl = ""
+
+    if (location.hostname == '127.0.0.1') {
+      baseUrl = "http://192.168.1.143"
+    }
+
+    async function loadFile(filename) {
+      currentFile = filename;
+      try {
+        const response = await fetch(`${baseUrl}/${filename}`);
+        if (!response.ok) throw new Error("Failed to load file");
+        const text = await response.text();
+        document.getElementById("jsonArea").value = text;
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+
+    async function saveFile() {
+      try {
+        const content = document.getElementById("jsonArea").value;
+        JSON.parse(content)
+        try {
+
+          const formData = new FormData();
+          const blob = new Blob([content], { type: 'application/json' });
+          formData.append("upload", blob, currentFile);
+
+          const response = await fetch(`${baseUrl}/upload`, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) throw new Error("Failed to upload");
+          alert("Saved successfully!");
+        } catch (err) {
+          alert("Save failed: " + err.message);
+        }
+      }
+      catch (e) {
+        alert("Error in JSON: " + e.message);
+      }
+    }
+  </script>
+</body>
+
+</html>
