@@ -69,6 +69,8 @@ pio run -e ESP32 --target uploadfs
 
 The `installer/` project discovers the EX-CSB1 USB serial port, reads firmware releases from GitHub, verifies SHA-256 hashes, flashes all ESP32 partitions, and can either preserve existing layout/locomotive data or install the optional starter layout, locomotives and images. It publishes self-contained applications for Windows x64, macOS Intel/Apple Silicon, and Linux x64/ARM64.
 
+Published installer ZIPs contain a release-specific manifest. After extracting the Windows ZIP, starting `DCCExpressLite.Installer.exe` automatically loads the matching firmware package from the same GitHub release.
+
 See [`installer/README.md`](installer/README.md) for development, firmware manifest, and publishing instructions. GitHub releases can be produced automatically by `.github/workflows/release-lite.yml`.
 
 ## EX-CSB1 Defaults

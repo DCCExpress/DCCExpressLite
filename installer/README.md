@@ -7,6 +7,7 @@ Cross-platform graphical EX-CSB1 firmware installer built with C#/.NET 8 and Ava
 - Windows, macOS Intel/Apple Silicon and Linux desktop UI from one project.
 - Native serial-port discovery without requiring PlatformIO.
 - Remote GitHub or local JSON release manifests.
+- Release ZIPs include their matching manifest, which the installer loads automatically on startup.
 - Firmware/tool download and SHA-256 verification.
 - ESP32 flashing through the official standalone Espressif `esptool` binary.
 - Firmware/system and LittleFS selection.
@@ -38,3 +39,5 @@ Generate a release package after the PlatformIO firmware and filesystem builds:
 ```
 
 This creates self-contained applications for `win-x64`, `osx-x64`, `osx-arm64`, `linux-x64`, and `linux-arm64`. macOS signing/notarization still requires Apple credentials and a Mac build/signing job. Linux users may need serial-port permission through the distribution's `dialout` or equivalent group.
+
+For a published Windows release, download `DCCExpressLite-Installer-win-x64.zip`, extract it, and run `DCCExpressLite.Installer.exe`. The bundled manifest points to the firmware assets in that exact GitHub release, so no manifest URL needs to be entered manually.

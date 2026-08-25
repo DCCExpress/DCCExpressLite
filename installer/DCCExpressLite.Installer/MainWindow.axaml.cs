@@ -23,6 +23,11 @@ public sealed partial class MainWindow : Window
         PlatformText.Text = $"{PlatformName()} · {SerialPortDiscovery.RuntimeId()}";
         RefreshPorts();
         var initialManifest = Environment.GetEnvironmentVariable("DCCEXPRESS_MANIFEST");
+        if (string.IsNullOrWhiteSpace(initialManifest))
+        {
+            var bundledManifest = Path.Combine(AppContext.BaseDirectory, "firmware-manifest.json");
+            if (File.Exists(bundledManifest)) initialManifest = bundledManifest;
+        }
         if (!string.IsNullOrWhiteSpace(initialManifest))
         {
             ManifestSourceTextBox.Text = initialManifest;
