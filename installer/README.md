@@ -1,6 +1,6 @@
 # DCCExpressLite Installer
 
-Cross-platform graphical EX-CSB1 firmware installer built with C#/.NET 8 and Avalonia UI.
+Graphical EX-CSB1 firmware installer built with C#/.NET 8 and Avalonia UI. Current alpha releases focus on Windows x64.
 
 ## Implemented
 
@@ -38,6 +38,6 @@ Generate a release package after the PlatformIO firmware and filesystem builds:
 ./tools/Publish-Installers.ps1
 ```
 
-This creates self-contained applications for `win-x64`, `osx-x64`, `osx-arm64`, `linux-x64`, and `linux-arm64`. macOS signing/notarization still requires Apple credentials and a Mac build/signing job. Linux users may need serial-port permission through the distribution's `dialout` or equivalent group.
+This currently creates the self-contained `win-x64` application. The Avalonia project remains portable, but macOS and Linux packages are intentionally deferred until they can be tested.
 
 For a published Windows release, download `DCCExpressLite-Installer-win-x64.zip`, extract it, and run `DCCExpressLite.Installer.exe`. The bundled manifest points to the firmware assets in that exact GitHub release, so no manifest URL needs to be entered manually.

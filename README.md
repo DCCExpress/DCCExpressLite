@@ -5,7 +5,7 @@
 
 DCCExpressLite is an ESP32/EX-CSB1 focused DCC-EX firmware fork with a built-in HTTP server, LittleFS web UI hosting, and a DCCExpressNext-compatible lightweight WebSocket bridge.
 
-It is the successor to [DCCExpress-Mini](https://github.com/DCCExpress/DCCExpress-Mini), with a substantially expanded layout editor/controller and a graphical cross-platform installer.
+It is the successor to [DCCExpress-Mini](https://github.com/DCCExpress/DCCExpress-Mini), with a substantially expanded layout editor/controller and a graphical installer. Current alpha releases publish the Windows x64 installer; macOS and Linux packages are planned for later testing.
 
 The goal is simple: open the command station from a phone browser, connect to `ws://<device-ip>/ws`, and control locomotives, functions, track power, emergency stop, turnouts, basic accessories, sensors, and raw DCC-EX commands without a separate Node.js server.
 
@@ -50,7 +50,7 @@ The goal is simple: open the command station from a phone browser, connect to `w
 - `CommandStation-EX/HTTPServer.cpp` - DCCExpressLite HTTP/WebSocket bridge.
 - `data/` - files uploaded to LittleFS.
 - `default-data/` - optional starter layout, locomotive list and matching images used by the installer.
-- `installer/` - C# / Avalonia graphical firmware installer for Windows, macOS, and Linux.
+- `installer/` - C# / Avalonia graphical firmware installer, currently released for Windows x64.
 - `DCCExpress/` - original DCCExpress-Mini web client source retained for compatibility.
 
 ## Build Firmware
@@ -67,7 +67,7 @@ pio run -e ESP32 --target uploadfs
 
 ## Graphical Installer
 
-The `installer/` project discovers the EX-CSB1 USB serial port, reads firmware releases from GitHub, verifies SHA-256 hashes, flashes all ESP32 partitions, and can either preserve existing layout/locomotive data or install the optional starter layout, locomotives and images. It publishes self-contained applications for Windows x64, macOS Intel/Apple Silicon, and Linux x64/ARM64.
+The `installer/` project discovers the EX-CSB1 USB serial port, reads firmware releases from GitHub, verifies SHA-256 hashes, flashes all ESP32 partitions, and can either preserve existing layout/locomotive data or install the optional starter layout, locomotives and images. Alpha releases currently publish a self-contained Windows x64 application.
 
 Published installer ZIPs contain a release-specific manifest. After extracting the Windows ZIP, starting `DCCExpressLite.Installer.exe` automatically loads the matching firmware package from the same GitHub release.
 

@@ -1,7 +1,7 @@
 param(
   [string]$Configuration = 'Release',
   [string]$OutputDirectory = "$PSScriptRoot\..\artifacts\installer",
-  [string[]]$Runtimes = @('win-x64', 'osx-x64', 'osx-arm64', 'linux-x64', 'linux-arm64')
+  [string[]]$Runtimes = @('win-x64')
 )
 
 $ErrorActionPreference = 'Stop'

@@ -25,6 +25,13 @@ jobs:
         run: pip install platformio
       - name: Generate build configuration
         run: cp CommandStation-EX/config.example.h CommandStation-EX/config.h
+      - name: Generate web UI version metadata
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          $version = $env:RELEASE_VERSION.TrimStart('v')
+          @{ version = $version } | ConvertTo-Json -Compress | Set-Content data/version.json -Encoding utf8NoBOM
       - name: Build firmware and LittleFS
         run: |
           pio run -e ESP32
@@ -43,7 +50,7 @@ jobs:
           name: firmware-release
           path: installer/artifacts/firmware/*
 
-  desktop-installers:
+  windows-installer:
     needs: firmware
     runs-on: ubuntu-latest
     steps:
@@ -56,7 +63,7 @@ jobs:
         with:
           name: firmware-release
           path: installer-bootstrap
-      - name: Publish cross-platform installers
+      - name: Publish Windows x64 installer
         shell: pwsh
         run: ./installer/tools/Publish-Installers.ps1
       - name: Add release manifest to installers
@@ -72,11 +79,11 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-installers
+          name: windows-installer
           path: installer/artifacts/installer/*.zip
 
   github-release:
-    needs: [firmware, desktop-installers]
+    needs: [firmware, windows-installer]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
