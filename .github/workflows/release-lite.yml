@@ -23,6 +23,8 @@ jobs:
           python-version: '3.12'
       - name: Install PlatformIO
         run: pip install platformio
+      - name: Generate build configuration
+        run: cp CommandStation-EX/config.example.h CommandStation-EX/config.h
       - name: Build firmware and LittleFS
         run: |
           pio run -e ESP32
