@@ -5,7 +5,7 @@
 
 DCCExpressLite is an ESP32/EX-CSB1 focused DCC-EX firmware fork with a built-in HTTP server, LittleFS web UI hosting, and a DCCExpressNext-compatible lightweight WebSocket bridge.
 
-It is the successor to [DCCExpress-Mini](https://github.com/DCCExpress/DCCExpress-Mini), with a substantially expanded layout editor/controller and a graphical installer. Current alpha releases publish the Windows x64 installer; macOS and Linux packages are planned for later testing.
+It is the successor to [DCCExpress-Mini](https://github.com/DCCExpress/DCCExpress-Mini), with a substantially expanded layout editor/controller. Firmware installation is handled by the separate [DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller) application.
 
 The goal is simple: open the command station from a phone browser, connect to `ws://<device-ip>/ws`, and control locomotives, functions, track power, emergency stop, turnouts, basic accessories, sensors, and raw DCC-EX commands without a separate Node.js server.
 
@@ -50,7 +50,7 @@ The goal is simple: open the command station from a phone browser, connect to `w
 - `CommandStation-EX/HTTPServer.cpp` - DCCExpressLite HTTP/WebSocket bridge.
 - `data/` - files uploaded to LittleFS.
 - `default-data/` - optional starter layout, locomotive list and matching images used by the installer.
-- `installer/` - C# / Avalonia graphical firmware installer, currently released for Windows x64.
+- `tools/` - firmware release manifest tooling.
 - `DCCExpress/` - original DCCExpress-Mini web client source retained for compatibility.
 
 ## Build Firmware
@@ -67,11 +67,9 @@ pio run -e ESP32 --target uploadfs
 
 ## Graphical Installer
 
-The `installer/` project discovers the EX-CSB1 USB serial port, reads firmware releases from GitHub, verifies SHA-256 hashes, flashes all ESP32 partitions, and can either preserve existing layout/locomotive data or install the optional starter layout, locomotives and images. Alpha releases currently publish a self-contained Windows x64 application.
+Download the separate [DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller) Windows application. It discovers the available releases from this repository, lets you choose a version, verifies its firmware assets, and flashes the EX-CSB1 without PlatformIO or Python.
 
-Published installer ZIPs contain a release-specific manifest. After extracting the Windows ZIP, starting `DCCExpressLite.Installer.exe` automatically loads the matching firmware package from the same GitHub release.
-
-See [`installer/README.md`](installer/README.md) for development, firmware manifest, and publishing instructions. GitHub releases can be produced automatically by `.github/workflows/release-lite.yml`.
+Firmware GitHub releases are produced automatically by `.github/workflows/release-lite.yml` and contain only the firmware, LittleFS, optional starter data and their manifest.
 
 ## EX-CSB1 Defaults
 

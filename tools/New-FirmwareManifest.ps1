@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$Version,
   [Parameter(Mandatory = $true)][string]$BaseUrl,
-  [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..\.."),
+  [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\.."),
   [string]$OutputDirectory = "$PSScriptRoot\..\artifacts\firmware"
 )
 
@@ -50,7 +50,7 @@ $manifest = [ordered]@{
   schemaVersion = 1
   product = 'DCCExpressLite for EX-CSB1'
   version = $Version
-  channel = 'stable'
+  channel = if ($Version.Contains('-')) { 'prerelease' } else { 'stable' }
   publishedAt = [DateTimeOffset]::UtcNow.ToString('o')
   releaseNotes = 'Firmware, integrated web server and DCCExpressLite UI.'
   images = $images

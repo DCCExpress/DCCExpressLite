@@ -43,47 +43,15 @@ jobs:
         run: |
           $version = $env:RELEASE_VERSION.TrimStart('v')
           $base = '${{ github.server_url }}/${{ github.repository }}/releases/download/v' + $version
-          ./installer/tools/New-FirmwareManifest.ps1 -Version $version -BaseUrl $base
+          ./tools/New-FirmwareManifest.ps1 -Version $version -BaseUrl $base
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: firmware-release
-          path: installer/artifacts/firmware/*
-
-  windows-installer:
-    needs: firmware
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Download release manifest
-        uses: actions/download-artifact@v4
-        with:
-          name: firmware-release
-          path: installer-bootstrap
-      - name: Publish Windows x64 installer
-        shell: pwsh
-        run: ./installer/tools/Publish-Installers.ps1
-      - name: Add release manifest to installers
-        shell: pwsh
-        run: |
-          Get-ChildItem installer/artifacts/installer -Directory | ForEach-Object {
-            Copy-Item installer-bootstrap/firmware-manifest.json $_.FullName
-          }
-      - name: Pack installers
-        run: |
-          cd installer/artifacts/installer
-          for dir in */; do zip -r "DCCExpressLite-Installer-${dir%/}.zip" "$dir"; done
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: installer/artifacts/installer/*.zip
+          path: artifacts/firmware/*
 
   github-release:
-    needs: [firmware, windows-installer]
+    needs: firmware
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

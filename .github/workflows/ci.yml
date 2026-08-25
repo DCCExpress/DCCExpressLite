@@ -21,13 +21,3 @@ jobs:
         run: pio run -e ESP32
       - name: Build LittleFS image
         run: pio run -e ESP32 -t buildfs
-
-  installer:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Build Avalonia installer
-        run: dotnet build installer/DCCExpressLite.Installer/DCCExpressLite.Installer.csproj -c Release --configfile installer/NuGet.Config

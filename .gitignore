@@ -4,10 +4,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
-installer/**/bin/
-installer/**/obj/
-installer/artifacts/
-installer/installer-preview.png
+artifacts/
 data/layout.json
 data/locos.json
 data/turnouts.json
