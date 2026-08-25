@@ -49,7 +49,7 @@ The goal is simple: open the command station from a phone browser, connect to `w
 - `CommandStation-EX/` - ESP32 firmware source.
 - `CommandStation-EX/HTTPServer.cpp` - DCCExpressLite HTTP/WebSocket bridge.
 - `data/` - files uploaded to LittleFS.
-- `data/locos.json` - Next-compatible default locomotive list.
+- `default-data/` - optional starter layout, locomotive list and matching images used by the installer.
 - `installer/` - C# / Avalonia graphical firmware installer for Windows, macOS, and Linux.
 - `DCCExpress/` - original DCCExpress-Mini web client source retained for compatibility.
 
@@ -67,7 +67,7 @@ pio run -e ESP32 --target uploadfs
 
 ## Graphical Installer
 
-The `installer/` project discovers the EX-CSB1 USB serial port, reads firmware releases from GitHub, verifies SHA-256 hashes, flashes all ESP32 partitions, and can preserve layout and locomotive data across a LittleFS update. It publishes self-contained applications for Windows x64, macOS Intel/Apple Silicon, and Linux x64/ARM64.
+The `installer/` project discovers the EX-CSB1 USB serial port, reads firmware releases from GitHub, verifies SHA-256 hashes, flashes all ESP32 partitions, and can either preserve existing layout/locomotive data or install the optional starter layout, locomotives and images. It publishes self-contained applications for Windows x64, macOS Intel/Apple Silicon, and Linux x64/ARM64.
 
 See [`installer/README.md`](installer/README.md) for development, firmware manifest, and publishing instructions. GitHub releases can be produced automatically by `.github/workflows/release-lite.yml`.
 

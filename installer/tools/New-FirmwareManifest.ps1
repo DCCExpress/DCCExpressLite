@@ -36,6 +36,15 @@ $images = foreach ($item in $definitions) {
   }
 }
 
+$defaultDataSource = Join-Path $ProjectRoot 'default-data/*'
+$defaultDataArchive = Join-Path $OutputDirectory 'default-data.zip'
+Compress-Archive -Path $defaultDataSource -DestinationPath $defaultDataArchive -Force
+$defaultData = [ordered]@{
+  url = "$($BaseUrl.TrimEnd('/'))/default-data.zip"
+  sha256 = (Get-FileHash -LiteralPath $defaultDataArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+  description = 'Optional starter layout, locomotives and locomotive images.'
+}
+
 $toolBase = 'https://github.com/espressif/esptool/releases/download/v5.3.1'
 $manifest = [ordered]@{
   schemaVersion = 1
@@ -45,6 +54,7 @@ $manifest = [ordered]@{
   publishedAt = [DateTimeOffset]::UtcNow.ToString('o')
   releaseNotes = 'Firmware, integrated web server and DCCExpressLite UI.'
   images = $images
+  defaultData = $defaultData
   tools = [ordered]@{
     'win-x64' = @{ url="$toolBase/esptool-v5.3.1-windows-amd64.zip"; sha256=''; archiveEntry='esptool-windows-amd64/esptool.exe' }
     'osx-x64' = @{ url="$toolBase/esptool-v5.3.1-macos-amd64.tar.gz"; sha256=''; archiveEntry='esptool-macos-amd64/esptool' }

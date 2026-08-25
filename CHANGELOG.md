@@ -11,4 +11,5 @@ All notable changes to DCCExpressLite will be documented in this file.
 - Wi-Fi configuration stored on the device.
 - Layout and locomotive import/export.
 - Cross-platform Avalonia installer for Windows, macOS and Linux.
+- Optional installer starter package with a sample layout, locomotives and images.
 - GitHub Actions workflows for firmware, filesystem and installer builds.

@@ -13,6 +13,7 @@ public sealed partial class MainWindow : Window
     private readonly FirmwarePackageService _packages = new();
     private readonly FlashService _flasher = new();
     private readonly DeviceBackupService _backups = new();
+    private readonly DefaultDataService _defaultData = new();
     private ResolvedFirmware? _release;
     private CancellationTokenSource? _operationCancellation;
 
@@ -75,6 +76,9 @@ public sealed partial class MainWindow : Window
             ReleaseNotesText.Text = string.IsNullOrWhiteSpace(_release.Manifest.ReleaseNotes)
                 ? $"{_release.Manifest.Images.Count} flash image(s) are available."
                 : _release.Manifest.ReleaseNotes;
+            DefaultDataCheckBox.IsEnabled = _release.Manifest.DefaultData is not null;
+            DefaultDataCheckBox.IsChecked = false;
+            BackupCheckBox.IsChecked = true;
             ReleaseSummaryBorder.IsVisible = true;
             AppendLog($"Loaded {_release.Manifest.Product} {_release.Manifest.Version} ({_release.Manifest.Images.Count} images). ");
             SetSuccess("Release ready", $"Version {_release.Manifest.Version} is ready to install.");
@@ -82,6 +86,8 @@ public sealed partial class MainWindow : Window
         catch (Exception exception)
         {
             _release = null;
+            DefaultDataCheckBox.IsChecked = false;
+            DefaultDataCheckBox.IsEnabled = false;
             ReleaseSummaryBorder.IsVisible = false;
             SetError(exception.Message);
         }
@@ -97,6 +103,12 @@ public sealed partial class MainWindow : Window
         if (_release is null || PortComboBox.SelectedItem is not string port) return;
         var includeFirmware = FirmwareCheckBox.IsChecked == true;
         var includeFilesystem = WebUiCheckBox.IsChecked == true;
+        var includeDefaultData = DefaultDataCheckBox.IsChecked == true;
+        if (includeDefaultData && _release.Manifest.DefaultData is null)
+        {
+            SetError("The selected release does not contain a default data package.");
+            return;
+        }
         var selected = _release.Manifest.Images.Where(image =>
             image.Kind.Equals("filesystem", StringComparison.OrdinalIgnoreCase) ? includeFilesystem : includeFirmware).ToArray();
         if (selected.Length == 0)
@@ -108,13 +120,14 @@ public sealed partial class MainWindow : Window
         _operationCancellation = new CancellationTokenSource();
         var token = _operationCancellation.Token;
         DeviceBackup? backup = null;
+        PreparedDefaultData? defaultData = null;
         SetBusy(true, "Preparing installation…", "Checking release files and protecting device data.");
         InstallProgressBar.Value = 1;
         AppendLog($"Starting installation on {port}.");
 
         try
         {
-            if (includeFilesystem && BackupCheckBox.IsChecked == true)
+            if (includeFilesystem && BackupCheckBox.IsChecked == true && !includeDefaultData)
             {
                 AppendLog($"Backing up layout and locomotives from {DeviceAddressTextBox.Text}...");
                 backup = await _backups.BackupAsync(DeviceAddressTextBox.Text ?? "", token);
@@ -128,6 +141,8 @@ public sealed partial class MainWindow : Window
                 AppendLog(value.Message);
             });
             var prepared = await _packages.PrepareAsync(_release, selected, prepareProgress, token);
+            if (includeDefaultData)
+                defaultData = await _packages.PrepareDefaultDataAsync(_release, prepareProgress, token);
             OperationTitleText.Text = "Flashing EX-CSB1…";
             OperationDetailText.Text = "Do not disconnect USB power.";
             var flashProgress = new Progress<double>(value => InstallProgressBar.Value = value);
@@ -139,6 +154,13 @@ public sealed partial class MainWindow : Window
                 OperationDetailText.Text = "Waiting for Wi-Fi and the web server to return.";
                 await _backups.RestoreAsync(DeviceAddressTextBox.Text ?? "", backup, AppendLog, token);
                 AppendLog("Layout and locomotives restored.");
+            }
+            else if (defaultData is not null)
+            {
+                OperationTitleText.Text = "Installing sample data…";
+                OperationDetailText.Text = "Uploading the starter layout, locomotives and images.";
+                await _defaultData.InstallAsync(DeviceAddressTextBox.Text ?? "", defaultData.ArchivePath, AppendLog, token);
+                AppendLog("Sample layout, locomotives and images installed.");
             }
 
             InstallProgressBar.Value = 100;
@@ -166,6 +188,16 @@ public sealed partial class MainWindow : Window
 
     private void Cancel_Click(object? sender, RoutedEventArgs e) => _operationCancellation?.Cancel();
     private void PortComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateReadyState();
+
+    private void DefaultData_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (DefaultDataCheckBox?.IsChecked == true && BackupCheckBox is not null) BackupCheckBox.IsChecked = false;
+    }
+
+    private void Backup_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (BackupCheckBox?.IsChecked == true && DefaultDataCheckBox is not null) DefaultDataCheckBox.IsChecked = false;
+    }
 
     private void SetBusy(bool busy, string? title = null, string? detail = null)
     {

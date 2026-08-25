@@ -25,8 +25,23 @@ public sealed class FirmwareManifest
     [JsonPropertyName("images")]
     public List<FirmwareImage> Images { get; set; } = [];
 
+    [JsonPropertyName("defaultData")]
+    public DefaultDataPackage? DefaultData { get; set; }
+
     [JsonPropertyName("tools")]
     public Dictionary<string, FlashTool> Tools { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class DefaultDataPackage
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = "";
+
+    [JsonPropertyName("sha256")]
+    public string Sha256 { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "Sample layout, locomotives and images";
 }
 
 public sealed class FirmwareImage
@@ -65,3 +80,4 @@ public sealed class FlashTool
 public sealed record ResolvedFirmware(FirmwareManifest Manifest, Uri SourceUri, string? LocalManifestPath);
 public sealed record DownloadedImage(FirmwareImage Definition, string LocalPath);
 public sealed record PreparedFlash(string ToolPath, string? ArgumentsPrefix, IReadOnlyList<DownloadedImage> Images);
+public sealed record PreparedDefaultData(string ArchivePath);

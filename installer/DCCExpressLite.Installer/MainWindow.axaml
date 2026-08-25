@@ -101,18 +101,21 @@
         <Border Classes="card">
           <StackPanel Spacing="13">
             <TextBlock Text="3  Install options" FontSize="17" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="10">
               <Border Background="#0C121C" CornerRadius="8" Padding="12">
                 <CheckBox x:Name="FirmwareCheckBox" IsChecked="True" Content="Firmware + system" />
               </Border>
               <Border Grid.Column="1" Background="#0C121C" CornerRadius="8" Padding="12">
                 <CheckBox x:Name="WebUiCheckBox" IsChecked="True" Content="Web UI / LittleFS" />
               </Border>
-              <Border Grid.Column="2" Background="#0C121C" CornerRadius="8" Padding="12">
-                <CheckBox x:Name="BackupCheckBox" IsChecked="True" Content="Backup layout + locos" />
+              <Border Grid.Row="1" Background="#0C121C" CornerRadius="8" Padding="12">
+                <CheckBox x:Name="BackupCheckBox" IsChecked="True" Content="Preserve layout + locos" IsCheckedChanged="Backup_IsCheckedChanged" />
+              </Border>
+              <Border Grid.Row="1" Grid.Column="1" Background="#0C121C" CornerRadius="8" Padding="12">
+                <CheckBox x:Name="DefaultDataCheckBox" IsChecked="False" IsEnabled="False" Content="Install sample layout + locos + images" IsCheckedChanged="DefaultData_IsCheckedChanged" />
               </Border>
             </Grid>
-            <TextBlock Text="Data protection downloads layout and locomotives before LittleFS is replaced, then restores them after restart." Classes="caption" TextWrapping="Wrap" />
+            <TextBlock Text="Choose either data preservation or the optional sample package. Sample data replaces the layout and locomotive list after flashing." Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 

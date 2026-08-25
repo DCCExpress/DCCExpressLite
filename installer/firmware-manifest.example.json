@@ -12,6 +12,11 @@
     { "name": "firmware.bin", "url": "firmware.bin", "sha256": "", "offset": "0x10000", "kind": "firmware" },
     { "name": "littlefs.bin", "url": "littlefs.bin", "sha256": "", "offset": "0x290000", "kind": "filesystem" }
   ],
+  "defaultData": {
+    "url": "default-data.zip",
+    "sha256": "",
+    "description": "Optional starter layout, locomotives and locomotive images."
+  },
   "tools": {
     "win-x64": {
       "url": "https://github.com/espressif/esptool/releases/download/v5.3.1/esptool-v5.3.1-windows-amd64.zip",

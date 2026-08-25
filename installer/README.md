@@ -11,6 +11,7 @@ Cross-platform graphical EX-CSB1 firmware installer built with C#/.NET 8 and Ava
 - ESP32 flashing through the official standalone Espressif `esptool` binary.
 - Firmware/system and LittleFS selection.
 - Layout and locomotive backup before LittleFS replacement, followed by automatic restore.
+- Optional starter package with a sample layout, locomotives and locomotive images.
 - Progress reporting, cancellation and full installation log.
 
 ## Run for development
@@ -22,7 +23,7 @@ dotnet run --project DCCExpressLite.Installer/DCCExpressLite.Installer.csproj
 
 ## Firmware release manifest
 
-See `firmware-manifest.example.json`. Image URLs may be absolute GitHub Release URLs or relative to the manifest. Every release should publish the five ESP32 images and the manifest.
+See `firmware-manifest.example.json`. Image and default-data URLs may be absolute GitHub Release URLs or relative to the manifest. Every release publishes the five ESP32 images, `default-data.zip`, and the manifest.
 
 Generate a release package after the PlatformIO firmware and filesystem builds:
 

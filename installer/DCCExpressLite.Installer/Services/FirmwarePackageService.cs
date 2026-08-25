@@ -99,6 +99,29 @@ public sealed class FirmwarePackageService
         return new PreparedFlash(toolPath, tool.ArgumentsPrefix, downloaded);
     }
 
+    public async Task<PreparedDefaultData> PrepareDefaultDataAsync(
+        ResolvedFirmware release,
+        IProgress<(double Value, string Message)> progress,
+        CancellationToken cancellationToken)
+    {
+        var package = release.Manifest.DefaultData
+            ?? throw new InvalidDataException("This release does not contain a default data package.");
+        if (string.IsNullOrWhiteSpace(package.Url))
+            throw new InvalidDataException("The default data package URL is missing.");
+
+        var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DCCExpressLite", "cache", Sanitize(release.Manifest.Version));
+        Directory.CreateDirectory(cache);
+        var sourceUri = ResolveUri(release, package.Url);
+        var fileName = Path.GetFileName(sourceUri.LocalPath);
+        if (string.IsNullOrWhiteSpace(fileName)) fileName = "default-data.zip";
+        var path = Path.Combine(cache, fileName);
+        progress.Report((40, "Downloading optional default layout and locomotives..."));
+        await DownloadOrCopyAsync(release, package.Url, path, cancellationToken);
+        await VerifyHashAsync(path, package.Sha256, cancellationToken);
+        return new PreparedDefaultData(path);
+    }
+
     private async Task DownloadOrCopyAsync(ResolvedFirmware release, string source, string destination, CancellationToken cancellationToken)
     {
         var uri = ResolveUri(release, source);
