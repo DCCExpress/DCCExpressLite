@@ -42,7 +42,7 @@ export default function LocoImage({
     >
       {image ? (
         <img
-          src={"images/" +image}
+          src={image}
           alt={name || "Mozdony"}
           style={{
             height: "100%",
