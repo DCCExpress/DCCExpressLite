@@ -8,6 +8,7 @@ import type {
 } from "@domain/types";
 
 import { getLocos, saveLocos } from "../../api/domainApi";
+import { uploadLocoImage } from "../../api/imageApi";
 import { wsApi } from "../../services/wsApi";
 import {
   createDefaultFunction,
@@ -155,13 +156,27 @@ export function useLocoDialogState(
   const setImageFromFile = (file: File | null): void => {
     if (!file || !selectedLoco) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      updateSelectedLoco({
-        image: typeof reader.result === "string" ? reader.result : "",
-      });
-    };
-    reader.readAsDataURL(file);
+    const locoId = selectedLoco.id;
+
+    void (async () => {
+      try {
+        setMessage("");
+        const imagePath = await uploadLocoImage(file);
+
+        setLocos(previous =>
+          previous.map(loco =>
+            loco.id === locoId
+              ? { ...loco, image: imagePath }
+              : loco
+          )
+        );
+
+        setMessage(t("common.success"));
+      } catch (error) {
+        console.error(error);
+        setMessage("A kép feltöltése nem sikerült.");
+      }
+    })();
   };
 
   const handleSave = async (): Promise<void> => {

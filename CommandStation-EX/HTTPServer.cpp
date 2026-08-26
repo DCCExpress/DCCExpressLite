@@ -75,9 +75,6 @@ static int configuredLocoAddresses[MAX_RUNTIME_LOCOS] = {0};
 static bool configuredLocoInverted[MAX_RUNTIME_LOCOS] = {false};
 
 static const int MAX_LINEAR_ACCESSORY_ADDRESS = 2048;
-// -1 means that this server has not seen a state for the address yet.
-// Turnouts and generic accessories are kept separately because the UI handles
-// them through different events even when they share the same DCC address.
 static int8_t turnoutStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
 static int8_t basicAccessoryStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
 
@@ -641,9 +638,6 @@ static void handleWsMessage(AsyncWebSocket *server, AsyncWebSocketClient *client
       return;
     }
 
-    // Layout turnouts use a linear DCC accessory address directly. The state
-    // selects the decoder output/gate; DCC-EX sends the activation pulse and
-    // its matching deactivation packet for <a LINEARADDRESS ACTIVATE>.
     dccParseRaw("<a " + String(address) + " " + String(closed ? 1 : 0) + ">");
     turnoutStateCache[address] = closed ? 1 : 0;
     broadcastMessage("turnoutChanged", "{\"address\":" + String(address) + ",\"closed\":" + String(closed ? "true" : "false") + "}", uuid);
@@ -805,16 +799,21 @@ static void sendCompressedAsset(AsyncWebServerRequest *request,
     return;
   }
 
-  // publicPath deliberately has no .gz suffix. AsyncFileResponse therefore
-  // emits Content-Encoding: gzip while retaining the explicit browser MIME.
   AsyncWebServerResponse *response = request->beginResponse(
     file, publicPath, contentType, false);
-  // The generated index uses a content hash query parameter. Assets can stay
-  // cached indefinitely while every changed build receives a new URL.
   response->addHeader("Cache-Control", "public, max-age=31536000, immutable");
   response->addHeader("Vary", "Accept-Encoding");
   response->addHeader("Connection", "close");
   request->send(response);
+}
+
+static String sanitizeImageFileName(String filename)
+{
+  filename.replace("\\", "_");
+  filename.replace("/", "_");
+  filename.replace("..", "_");
+  filename.trim();
+  return filename;
 }
 
 void setupHTTPServer()
@@ -837,6 +836,9 @@ void setupHTTPServer()
     Serial.println("LittleFS mount error!");
     return;
   }
+
+  if (!LittleFS.exists("/images"))
+    LittleFS.mkdir("/images");
 
   Serial.println("LittleFS started!");
   LCD(4, F("HTTP: FS OK"));
@@ -1029,52 +1031,115 @@ void setupHTTPServer()
                 {
                   sendCompressedAsset(request, "/assets/index-v2.css.gz", "/assets/index-v2.css", "text/css; charset=utf-8");
                 });
+
+  httpServer.serveStatic("/images/", LittleFS, "/images/")
+    .setCacheControl("no-cache");
+
   httpServer.serveStatic("/", LittleFS, "/")
     .setDefaultFile("index.html")
     .setCacheControl("no-cache");
 
   httpServer.on("/list", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
-                  File root = LittleFS.open("/");
-                  File file = root.openNextFile();
+                  File root = LittleFS.open("/images");
+                  File file = root ? root.openNextFile() : File();
 
                   String json = "[";
                   bool first = true;
                   while (file)
                   {
-                    if (!first)
-                      json += ",";
-                    json += "{\"name\":\"" + String(file.name()) + "\",";
-                    json += "\"size\":" + String(file.size()) + "}";
+                    if (!file.isDirectory())
+                    {
+                      String name = String(file.name());
+                      const int slash = name.lastIndexOf('/');
+                      if (slash >= 0)
+                        name = name.substring(slash + 1);
+
+                      if (!first)
+                        json += ",";
+
+                      json += "{\"name\":\"images/" + escapeJson(name) + "\",";
+                      json += "\"size\":" + String(file.size()) + "}";
+                      first = false;
+                    }
+
                     file = root.openNextFile();
-                    first = false;
                   }
+
                   json += "]";
                   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
                   response->addHeader("Access-Control-Allow-Origin", "*");
-                  request->send(response); });
+                  request->send(response);
+                });
 
   httpServer.on("/delete", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
                   if (request->hasParam("fn"))
                   {
-                    String path = "/" + request->getParam("fn")->value();
-                    LittleFS.remove(path);
+                    String filename = sanitizeImageFileName(request->getParam("fn")->value());
+
+                    if (filename.startsWith("images_"))
+                      filename = filename.substring(7);
+
+                    if (filename.length())
+                      LittleFS.remove("/images/" + filename);
                   }
+
                   AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "OK");
                   response->addHeader("Access-Control-Allow-Origin", "*");
-                  request->send(response); });
+                  request->send(response);
+                });
 
-  httpServer.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request)
-                { request->send(200, "text/plain", "OK"); }, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
+  httpServer.on("/upload", HTTP_POST,
+                [](AsyncWebServerRequest *request)
                 {
+                  request->send(200, "application/json", "{\"ok\":true}");
+                },
+                [](AsyncWebServerRequest *request, String filename, size_t index,
+                   uint8_t *data, size_t len, bool final)
+                {
+                  (void)request;
                   static File uploadFile;
-                  if (!index)
-                    uploadFile = LittleFS.open("/" + filename, "w");
-                  if (uploadFile)
-                    uploadFile.write(data, len);
-                  if (final && uploadFile)
-                    uploadFile.close(); });
+                  static bool uploadOk = false;
+
+                  if (index == 0)
+                  {
+                    if (uploadFile)
+                      uploadFile.close();
+
+                    if (!LittleFS.exists("/images"))
+                      LittleFS.mkdir("/images");
+
+                    filename = sanitizeImageFileName(filename);
+                    uploadOk = filename.length() > 0;
+
+                    if (uploadOk)
+                    {
+                      uploadFile = LittleFS.open("/images/" + filename, "w");
+                      uploadOk = (bool)uploadFile;
+                    }
+                  }
+
+                  if (uploadOk && len)
+                  {
+                    if (uploadFile.write(data, len) != len)
+                      uploadOk = false;
+                  }
+
+                  if (final)
+                  {
+                    if (uploadFile)
+                    {
+                      uploadFile.flush();
+                      uploadFile.close();
+                    }
+
+                    if (!uploadOk)
+                      Serial.println("Image upload failed.");
+
+                    uploadOk = false;
+                  }
+                });
 
   httpServer.on("/fsinfo", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
@@ -1103,7 +1168,8 @@ void setupHTTPServer()
                   json += "}";
                   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
                   response->addHeader("Access-Control-Allow-Origin", "*");
-                  request->send(response); });
+                  request->send(response);
+                });
 
   ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client,
                 AwsEventType type, void *arg, uint8_t *data, size_t len)
@@ -1122,7 +1188,8 @@ void setupHTTPServer()
                else if (type == WS_EVT_DATA)
                {
                  handleWsMessage(server, client, data, len);
-               } });
+               }
+             });
 
   httpServer.addHandler(&ws);
   httpServer.begin();

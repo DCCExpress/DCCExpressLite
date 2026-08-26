@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
+const device = "http://192.168.1.143";
 
 export default defineConfig({
   base: "/",
@@ -18,9 +19,24 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5174,
     proxy: {
-      "/api": { target: "http://192.168.1.143", changeOrigin: true },
-      "/images": { target: "http://192.168.1.143", changeOrigin: true, rewrite: (path) => path.replace(/^\/images/, ""), },
-      "/ws": { target: "ws://192.168.1.143", ws: true, changeOrigin: true }
+      "/api": { target: device, changeOrigin: true },
+
+      // User images always come from the ESP32 in dev mode.
+      // Do NOT rewrite /images -> / because the firmware stores them
+      // in LittleFS under /images/.
+      "/images": { target: device, changeOrigin: true },
+
+      // Legacy filesystem endpoints currently used by the Lite firmware.
+      "/upload": { target: device, changeOrigin: true },
+      "/delete": { target: device, changeOrigin: true },
+      "/list": { target: device, changeOrigin: true },
+      "/fsinfo": { target: device, changeOrigin: true },
+
+      "/ws": {
+        target: device.replace(/^http/, "ws"),
+        ws: true,
+        changeOrigin: true
+      }
     }
   },
   build: {
