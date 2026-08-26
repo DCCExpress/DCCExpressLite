@@ -30,3 +30,8 @@ jobs:
         run: pio run -e ESP32
       - name: Build LittleFS image
         run: pio run -e ESP32 -t buildfs
+      - name: Verify embedded starter data
+        run: |
+          for file in layout.json locos.json bobo.png csorgo.png szergej.png traxx.png; do
+            test -s "data/$file"
+          done

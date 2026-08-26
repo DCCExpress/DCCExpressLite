@@ -2,6 +2,12 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## 0.1.0-alpha.5 - 2026-08-26
+
+- Always stage the versioned starter layout, locomotive roster and locomotive images into clean LittleFS builds.
+- Include those starter files in the merged firmware used by the browser installer.
+- Preserve existing local/device data during ordinary developer builds by copying defaults only when files are missing.
+
 ## 0.1.0-alpha.4 - 2026-08-26
 
 - Made the repository self-contained with the complete web UI source under `web-ui/src/`.

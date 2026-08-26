@@ -16,7 +16,7 @@ For most users the quickest route is the **[DCCExpressLite Web Installer](https:
 4. Keep the USB cable connected until flashing finishes.
 5. After installation, enter the home SSID and password on the same installer page and send them over the selected serial port.
 
-The web installer flashes one verified merged image containing the bootloader, partition table, firmware and embedded web application. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
+The web installer flashes one verified merged image containing the bootloader, partition table, firmware, embedded web application, starter layout, four locomotives and their images. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
 
 Windows users can alternatively download the graphical **[DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller/releases)**. Manual binaries are available under this repository's [releases](https://github.com/DCCExpress/DCCExpressLite/releases).
 
@@ -48,7 +48,7 @@ The command saves the credentials and restarts the EX-CSB1. Use `<WIFI?>` to che
 - `CommandStation-EX/` — firmware and embedded HTTP/WebSocket server source.
 - `web-ui/src/` — complete React/TypeScript web application source.
 - `data/` — generated production UI and device data uploaded to LittleFS.
-- `default-data/` — optional starter layout, locomotive list and matching images.
+- `default-data/` — versioned starter layout, locomotive list and matching images.
 - `webinstaller/` — ESP Web Tools installer page source.
 - `tools/` — merged-image and release-manifest build scripts.
 - `.github/workflows/` — CI, release and GitHub Pages deployment.
@@ -75,6 +75,8 @@ Version tags automatically build and publish:
 - `firmware-manifest.json` for the desktop installer;
 - optional starter data;
 - the HTTPS web installer on GitHub Pages.
+
+On a clean checkout, PlatformIO stages the files from `default-data/` into LittleFS automatically. Existing developer/device data files are left untouched.
 
 ## License
 
