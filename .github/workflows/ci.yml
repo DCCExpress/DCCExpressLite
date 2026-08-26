@@ -13,8 +13,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
       - name: Install PlatformIO
         run: pip install platformio
+      - name: Build embedded web UI
+        run: |
+          npm ci --prefix web-ui
+          npm run embed --prefix web-ui
       - name: Generate build configuration
         run: cp CommandStation-EX/config.example.h CommandStation-EX/config.h
       - name: Build EX-CSB1 firmware

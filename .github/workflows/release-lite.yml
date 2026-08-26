@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   firmware:
@@ -21,6 +23,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
       - name: Install PlatformIO
         run: pip install platformio
       - name: Generate build configuration
@@ -32,6 +39,10 @@ jobs:
         run: |
           $version = $env:RELEASE_VERSION.TrimStart('v')
           @{ version = $version } | ConvertTo-Json -Compress | Set-Content data/version.json -Encoding utf8NoBOM
+      - name: Build embedded web UI
+        run: |
+          npm ci --prefix web-ui
+          npm run embed --prefix web-ui
       - name: Build firmware and LittleFS
         run: |
           pio run -e ESP32
@@ -49,6 +60,10 @@ jobs:
         with:
           name: firmware-release
           path: artifacts/firmware/*
+      - name: Upload web installer for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/webinstaller
 
   github-release:
     needs: firmware
@@ -56,8 +71,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: firmware-release
           path: release
-          merge-multiple: true
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,3 +82,14 @@ jobs:
           prerelease_flag=""
           if [[ "$version" == *-* ]]; then prerelease_flag="--prerelease"; fi
           gh release create "v$version" release/* --repo "$GITHUB_REPOSITORY" --title "DCCExpressLite v$version" --generate-notes $prerelease_flag
+
+  deploy-web-installer:
+    needs: firmware
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy web installer
+        id: deployment
+        uses: actions/deploy-pages@v4

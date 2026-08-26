@@ -236,6 +236,7 @@ void loop()
   }
 
 #ifdef HTTP
+  NetworkSettings::loop();
   loopHTTPServer();
 #endif
 }

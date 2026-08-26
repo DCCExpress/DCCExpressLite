@@ -36,6 +36,12 @@ $images = foreach ($item in $definitions) {
   }
 }
 
+$mergedPath = & (Join-Path $PSScriptRoot 'New-MergedFirmware.ps1') `
+  -Version $Version `
+  -ProjectRoot $ProjectRoot `
+  -FirmwareOutputDirectory $OutputDirectory `
+  -WebInstallerOutputDirectory (Join-Path $ProjectRoot 'artifacts/webinstaller')
+
 $defaultDataSource = Join-Path $ProjectRoot 'default-data/*'
 $defaultDataArchive = Join-Path $OutputDirectory 'default-data.zip'
 Compress-Archive -Path $defaultDataSource -DestinationPath $defaultDataArchive -Force
@@ -54,6 +60,12 @@ $manifest = [ordered]@{
   publishedAt = [DateTimeOffset]::UtcNow.ToString('o')
   releaseNotes = 'Firmware, integrated web server and DCCExpressLite UI.'
   images = $images
+  mergedFirmware = [ordered]@{
+    name = (Split-Path $mergedPath -Leaf)
+    url = "$($BaseUrl.TrimEnd('/'))/$(Split-Path $mergedPath -Leaf)"
+    sha256 = (Get-FileHash -LiteralPath $mergedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    flashOffset = '0x0'
+  }
   defaultData = $defaultData
   tools = [ordered]@{
     'win-x64' = @{ url="$toolBase/esptool-v5.3.1-windows-amd64.zip"; sha256=''; archiveEntry='esptool-windows-amd64/esptool.exe' }

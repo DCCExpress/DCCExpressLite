@@ -26,7 +26,7 @@
 
 
 #ifndef COMMAND_BUFFER_SIZE
- #define COMMAND_BUFFER_SIZE 100
+ #define COMMAND_BUFFER_SIZE 128
 #endif
 
 class SerialManager {

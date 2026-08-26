@@ -1,6 +1,0 @@
-{
-    "startup": {
-        "power" : "<1 MAIN><1 JOIN>",
-        "init": "<s>\n<T 1 DCC 1>\n<T 2 DCC 2>\n<T 3 DCC 3>"
-    }
-}

@@ -3,6 +3,7 @@
 #include "DCCEXParser.h"
 #include "DCC.h"
 #include "HTTPServer.h"
+#include <esp_freertos_hooks.h>
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -16,6 +17,44 @@
 
 AsyncWebServer httpServer(80);
 AsyncWebSocket ws("/ws");
+
+static volatile uint32_t cpuIdleCounters[2] = {0, 0};
+static uint32_t cpuIdleBaseline[2] = {1, 1};
+static uint32_t cpuIdlePrevious[2] = {0, 0};
+static uint8_t cpuUsagePercent[2] = {0, 0};
+static unsigned long lastCpuSampleAtMs = 0;
+
+static bool cpuIdleHook0()
+{
+  ++cpuIdleCounters[0];
+  return false;
+}
+
+static bool cpuIdleHook1()
+{
+  ++cpuIdleCounters[1];
+  return false;
+}
+
+static void updateCpuUsage()
+{
+  const unsigned long now = millis();
+  if (now - lastCpuSampleAtMs < 1000)
+    return;
+
+  lastCpuSampleAtMs = now;
+  for (uint8_t core = 0; core < 2; ++core)
+  {
+    const uint32_t current = cpuIdleCounters[core];
+    const uint32_t idleDelta = current - cpuIdlePrevious[core];
+    cpuIdlePrevious[core] = current;
+    if (idleDelta > cpuIdleBaseline[core])
+      cpuIdleBaseline[core] = idleDelta;
+    const uint32_t measuredIdlePercent = (idleDelta * 100ULL) / cpuIdleBaseline[core];
+    const uint32_t idlePercent = measuredIdlePercent > 100 ? 100 : measuredIdlePercent;
+    cpuUsagePercent[core] = 100 - idlePercent;
+  }
+}
 
 static bool trackPowerOn = false;
 static bool emergencyStopActive = false;
@@ -172,6 +211,13 @@ static String makeDccExStatusData()
   data += ",\"progCurrentMa\":" + String(TrackManager::getProgCurrentmA());
   data += ",\"uptimeMs\":" + String(millis());
   data += ",\"freeHeapBytes\":" + String(ESP.getFreeHeap());
+  data += ",\"cpuCores\":2";
+  data += ",\"cpuFrequencyMhz\":" + String(ESP.getCpuFreqMHz());
+  data += ",\"cpuCore0Percent\":" + String(cpuUsagePercent[0]);
+  data += ",\"cpuCore1Percent\":" + String(cpuUsagePercent[1]);
+  data += ",\"chipTemperatureC\":" + String(temperatureRead(), 1);
+  data += ",\"arduinoCore\":" + String(ARDUINO_RUNNING_CORE);
+  data += ",\"networkCore\":" + String(CONFIG_ASYNC_TCP_RUNNING_CORE);
   data += "}";
   return data;
 }
@@ -742,6 +788,7 @@ static void sendIndex(AsyncWebServerRequest *request)
   AsyncWebServerResponse *response = request->beginResponse(
     LittleFS, "/index.html", "text/html; charset=utf-8", false);
   response->addHeader("Cache-Control", "no-store");
+  response->addHeader("Connection", "close");
   request->send(response);
 }
 
@@ -762,8 +809,11 @@ static void sendCompressedAsset(AsyncWebServerRequest *request,
   // emits Content-Encoding: gzip while retaining the explicit browser MIME.
   AsyncWebServerResponse *response = request->beginResponse(
     file, publicPath, contentType, false);
-  response->addHeader("Cache-Control", "no-cache");
+  // The generated index uses a content hash query parameter. Assets can stay
+  // cached indefinitely while every changed build receives a new URL.
+  response->addHeader("Cache-Control", "public, max-age=31536000, immutable");
   response->addHeader("Vary", "Accept-Encoding");
+  response->addHeader("Connection", "close");
   request->send(response);
 }
 
@@ -771,6 +821,16 @@ void setupHTTPServer()
 {
   memset(turnoutStateCache, -1, sizeof(turnoutStateCache));
   memset(basicAccessoryStateCache, -1, sizeof(basicAccessoryStateCache));
+
+  esp_register_freertos_idle_hook_for_cpu(cpuIdleHook0, 0);
+  esp_register_freertos_idle_hook_for_cpu(cpuIdleHook1, 1);
+  delay(250);
+  for (uint8_t core = 0; core < 2; ++core)
+  {
+    cpuIdleBaseline[core] = cpuIdleCounters[core] ? cpuIdleCounters[core] * 4 : 1;
+    cpuIdlePrevious[core] = cpuIdleCounters[core];
+  }
+  lastCpuSampleAtMs = millis();
 
   if (!LittleFS.begin(true))
   {
@@ -1072,6 +1132,7 @@ void setupHTTPServer()
 
 void loopHTTPServer()
 {
+  updateCpuUsage();
   ws.cleanupClients();
 
   const unsigned long now = millis();

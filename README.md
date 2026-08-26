@@ -1,112 +1,81 @@
 # DCCExpressLite
 
-[![Build and release](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/release-lite.yml/badge.svg)](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/release-lite.yml)
+[![CI](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/ci.yml/badge.svg)](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/ci.yml)
+[![Release](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/release-lite.yml/badge.svg)](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/release-lite.yml)
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](LICENSE.md)
 
-DCCExpressLite is an ESP32/EX-CSB1 focused DCC-EX firmware fork with a built-in HTTP server, LittleFS web UI hosting, and a DCCExpressNext-compatible lightweight WebSocket bridge.
+DCCExpressLite is a self-contained ESP32/EX-CSB1 command-station firmware with an embedded browser-based layout editor and controller. No separate Node.js server or sibling source repository is required at runtime or during development.
 
-It is the successor to [DCCExpress-Mini](https://github.com/DCCExpress/DCCExpress-Mini), with a substantially expanded layout editor/controller. Firmware installation is handled by the separate [DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller) application.
+## Fastest installation: Web Installer
 
-The goal is simple: open the command station from a phone browser, connect to `ws://<device-ip>/ws`, and control locomotives, functions, track power, emergency stop, turnouts, basic accessories, sensors, and raw DCC-EX commands without a separate Node.js server.
+For most users the quickest route is the **[DCCExpressLite Web Installer](https://dccexpress.github.io/DCCExpressLite/)**.
 
-## What Is Included
+1. Open the installer in desktop Chrome or Edge.
+2. Connect the EX-CSB1 with USB.
+3. Select its serial port and start installation.
+4. Keep the USB cable connected until flashing finishes.
+5. After installation, enter the home SSID and password on the same installer page and send them over the selected serial port.
 
-- EX-CSB1 default motor driver configuration.
-- HTTP server on port `80`.
-- WebSocket endpoint at `/ws`.
-- LittleFS static file hosting from `data/`.
-- DCCExpressNext Lite WebSocket commands:
-  - `setTrackPower`
-  - `setProgrammingPower`
-  - `emergencyStop`
-  - `setLoco`
-  - `getLoco`
-  - `setLocoFunction`
-  - `setTurnout`
-  - `setBasicAccessory`
-  - `setSensor`
-  - `writeDccExDirectCommand`
-  - `dccexraw` for backward compatibility with DCCExpress-Mini
-  - `locosCommand` load/save backed by `/locos.json`
-  - `fileCommand` read/write backed by LittleFS
-- DCCExpressNext-style server events:
-  - `ws:welcome`
-  - `commandCenterInfo`
-  - `powerInfo`
-  - `commandCenterLockChanged`
-  - `locoState`
-  - `turnoutChanged`
-  - `accessoryChanged`
-  - `sensorChanged`
-  - `dccExDirectCommandResponse`
-  - `locosResponse`
-  - `fileResponse`
-  - `rawInfo`
-  - `error`
+The web installer flashes one verified merged image containing the bootloader, partition table, firmware and embedded web application. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
 
-## Project Layout
+Windows users can alternatively download the graphical **[DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller/releases)**. Manual binaries are available under this repository's [releases](https://github.com/DCCExpress/DCCExpressLite/releases).
 
-- `CommandStation-EX/` - ESP32 firmware source.
-- `CommandStation-EX/HTTPServer.cpp` - DCCExpressLite HTTP/WebSocket bridge.
-- `data/` - files uploaded to LittleFS.
-- `default-data/` - optional starter layout, locomotive list and matching images used by the installer.
-- `tools/` - firmware release manifest tooling.
-- `DCCExpress/` - original DCCExpress-Mini web client source retained for compatibility.
+## Features
 
-## Build Firmware
+- DCC-EX based EX-CSB1 command-station firmware.
+- HTTP server on port `80` and WebSocket endpoint at `/ws`.
+- Responsive layout editor and runtime controller.
+- Locomotive editor, dual throttle panels, functions and per-device image mirroring.
+- Track power, emergency stop, turnouts, accessories, sensors, signals and routes.
+- Route sequencing, route highlighting and cached accessory states.
+- Network configuration stored on the ESP32.
+- Runtime, flash, processor, temperature and HAL/I²C device information.
+- Layout and locomotive import/export.
+- Automatic WebSocket reconnect and refresh-safe static file delivery.
 
-Install PlatformIO, then run from this folder:
+After network setup, open the IP address shown on the EX-CSB1 display. The factory setup address is usually `http://192.168.4.1`.
 
-```bash
+The same network setup is available in any 115200-baud serial monitor:
+
+```text
+<WIFI "Home SSID" "password">
+```
+
+The command saves the credentials and restarts the EX-CSB1. Use `<WIFI?>` to check whether credentials are stored or `<WIFI CLEAR>` to erase them and return to setup-hotspot mode.
+
+## Repository layout
+
+- `CommandStation-EX/` — firmware and embedded HTTP/WebSocket server source.
+- `web-ui/src/` — complete React/TypeScript web application source.
+- `data/` — generated production UI and device data uploaded to LittleFS.
+- `default-data/` — optional starter layout, locomotive list and matching images.
+- `webinstaller/` — ESP Web Tools installer page source.
+- `tools/` — merged-image and release-manifest build scripts.
+- `.github/workflows/` — CI, release and GitHub Pages deployment.
+
+## Development
+
+All prerequisites, commands, upload steps, partition offsets and release instructions are documented in **[DEVELOPING.md](DEVELOPING.md)**.
+
+Quick local build:
+
+```powershell
+npm ci --prefix web-ui
+npm run embed --prefix web-ui
 pio run -e ESP32
-pio run -e ESP32 --target upload
-pio run -e ESP32 --target uploadfs
+pio run -e ESP32 -t buildfs
 ```
 
-`platformio.ini` already enables `-DHTTP`, LittleFS, `ESPAsyncWebServer`, `AsyncTCP`, and `ArduinoJson`.
+## Releases
 
-## Graphical Installer
+Version tags automatically build and publish:
 
-Download the separate [DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller) Windows application. It discovers the available releases from this repository, lets you choose a version, verifies its firmware assets, and flashes the EX-CSB1 without PlatformIO or Python.
+- individual ESP32 flash images;
+- a 4 MB merged firmware image;
+- `firmware-manifest.json` for the desktop installer;
+- optional starter data;
+- the HTTPS web installer on GitHub Pages.
 
-Firmware GitHub releases are produced automatically by `.github/workflows/release-lite.yml` and contain only the firmware, LittleFS, optional starter data and their manifest.
+## License
 
-## EX-CSB1 Defaults
-
-`CommandStation-EX/config.example.h` defaults to:
-
-```cpp
-#define MOTOR_SHIELD_TYPE EXCSB1
-```
-
-If you create your own `config.h`, keep that setting for EX-CSB1 hardware and adjust WiFi credentials as needed.
-
-## Using DCCExpressNext Mobile
-
-The current `data/` folder already contains a built DCCExpressNext mobile UI in `index.html` and `assets/`.
-
-To refresh it later, build the mobile client from `DCCExpressNext/mobile`, then copy its build output into this project's `data/` folder before `uploadfs`.
-
-```bash
-cd ../DCCExpressNext/mobile
-npm install
-npm run build
-```
-
-Then copy the generated `dist/` contents into:
-
-```text
-DCCExpressLite/data/
-```
-
-The mobile client already defaults to:
-
-```text
-ws://<same-host>/ws
-```
-
-so it will connect directly to the ESP32 when served from LittleFS.
-
-## Notes
-
-This is intentionally a Lite bridge. The full DCCExpressNext Node.js runtime features, such as route reservation, task manager, script runtime, automation services, and full layout runtime graph, are not ported to ESP32. Those remain better suited to the full Node server.
+DCCExpressLite and its DCC-EX-derived firmware are distributed under the GNU GPL v3 or later. See [LICENSE.md](LICENSE.md) and the retained firmware license notices.

@@ -100,6 +100,9 @@ Once a new OPCODE is decided upon, update this list.
 
 #include "StringFormatter.h"
 #include "DCCEXParser.h"
+#if defined(HTTP) && defined(ARDUINO_ARCH_ESP32)
+#include "NetworkSettings.h"
+#endif
 #include "DCC.h"
 #include "DCCWaveform.h"
 #include "Turnouts.h"
@@ -299,6 +302,10 @@ void DCCEXParser::parseOne(Print *stream, byte *com, RingStream * ringStream)
     int16_t p[MAX_COMMAND_PARAMS];
     while (com[0] == '<' || com[0] == ' ')
         com++; // strip off any number of < or spaces
+#if defined(HTTP) && defined(ARDUINO_ARCH_ESP32)
+    if (NetworkSettings::handleSerialCommand(stream, reinterpret_cast<const char *>(com)))
+        return;
+#endif
     byte opcode = com[0];
     int16_t splitnum = splitValues(p, com, opcode=='M' || opcode=='P');
     if (splitnum < 0 || splitnum >= MAX_COMMAND_PARAMS) // if arguments are broken, leave but via printing <X>
