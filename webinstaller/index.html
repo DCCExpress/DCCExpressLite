@@ -6,13 +6,22 @@
   <meta name="theme-color" content="#111827">
   <title>DCCExpressLite Web Installer</title>
 
-  <script type="module"
-    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <script
+    type="module"
+    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module">
+  </script>
 
   <style>
     :root {
       color-scheme: dark;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
     }
 
     * {
@@ -23,8 +32,13 @@
       margin: 0;
       min-height: 100vh;
       background:
-        radial-gradient(circle at top, rgba(37,99,235,.20), transparent 35rem),
+        radial-gradient(
+          circle at top,
+          rgba(37, 99, 235, .20),
+          transparent 35rem
+        ),
         #090d16;
+
       color: #e5e7eb;
       display: grid;
       place-items: center;
@@ -33,11 +47,11 @@
 
     main {
       width: min(760px, 100%);
-      background: rgba(17,24,39,.92);
+      background: rgba(17, 24, 39, .92);
       border: 1px solid #273244;
       border-radius: 22px;
       padding: clamp(22px, 5vw, 42px);
-      box-shadow: 0 24px 80px rgba(0,0,0,.35);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, .35);
     }
 
     .topbar {
@@ -53,6 +67,11 @@
       letter-spacing: -.03em;
     }
 
+    h2 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+
     .language-switch {
       display: flex;
       gap: 6px;
@@ -64,7 +83,7 @@
       border-radius: 9px;
       background: #111827;
       color: #94a3b8;
-      padding: 7px 10px;
+      padding: 7px 11px;
       cursor: pointer;
       font: inherit;
       font-weight: 700;
@@ -93,6 +112,14 @@
       color: #cbd5e1;
     }
 
+    a {
+      color: #60a5fa;
+    }
+
+    a:hover {
+      color: #93c5fd;
+    }
+
     .panel {
       margin: 24px 0;
       padding: 20px;
@@ -102,8 +129,18 @@
     }
 
     .warning {
-      border-color: #654d1a;
+      border-color: #7c5b17;
       background: #1d180c;
+    }
+
+    .success {
+      border-color: #166534;
+      background: #0b1d14;
+    }
+
+    .important-list {
+      margin-bottom: 0;
+      padding-left: 22px;
     }
 
     esp-web-install-button {
@@ -203,60 +240,164 @@
 </head>
 
 <body>
+
 <main>
 
   <div class="topbar">
     <div>
       <h1>DCCExpressLite</h1>
-      <div class="version" id="installer-version">ESP32 / EX-CSB1</div>
+
+      <div
+        class="version"
+        id="installer-version">
+        ESP32 / EX-CSB1
+      </div>
     </div>
 
-    <div class="language-switch" aria-label="Language">
-      <button id="lang-hu" type="button">HU</button>
-      <button id="lang-en" type="button">EN</button>
+    <div
+      class="language-switch"
+      aria-label="Language">
+
+      <button
+        id="lang-hu"
+        type="button">
+        HU
+      </button>
+
+      <button
+        id="lang-en"
+        type="button">
+        EN
+      </button>
+
     </div>
   </div>
+
 
   <p data-i18n="intro"></p>
 
-  <div class="panel">
-    <strong data-i18n="installationTitle"></strong>
 
-    <ol>
-      <li data-i18n="installStep1"></li>
-      <li data-i18n="installStep2"></li>
-      <li data-i18n="installStep3"></li>
-      <li data-i18n="installStep4"></li>
-    </ol>
+  <!-- BEFORE INSTALLATION -->
 
-    <label for="release-select" data-i18n="releaseLabel"></label>
+  <div class="panel warning">
 
-    <select id="release-select" disabled>
-      <option value="" data-i18n="loadingVersions"></option>
-    </select>
+    <h2 data-i18n="beforeInstallTitle"></h2>
 
-    <p id="release-status" role="status"></p>
+    <ul class="important-list">
 
-    <esp-web-install-button id="install-button" manifest="manifest.json">
-      <button class="install-action" slot="activate" data-i18n="installButton"></button>
+      <li>
+        <span data-i18n="driverText1"></span>
 
-      <span slot="unsupported" data-i18n="unsupportedBrowser"></span>
-    </esp-web-install-button>
+        <a
+          href="https://www.wch.cn/downloads/"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-i18n="driverLink">
+        </a>
+
+        <span data-i18n="driverText2"></span>
+      </li>
+
+      <li data-i18n="backupWarning"></li>
+
+      <li data-i18n="usbCableWarning"></li>
+
+      <li data-i18n="browserWarning"></li>
+
+    </ul>
+
   </div>
 
+
+  <!-- INSTALL -->
+
   <div class="panel">
-    <strong data-i18n="wifiTitle"></strong>
+
+    <h2 data-i18n="installationTitle"></h2>
+
+    <ol>
+
+      <li data-i18n="installStep1"></li>
+
+      <li data-i18n="installStep2"></li>
+
+      <li data-i18n="installStep3"></li>
+
+      <li data-i18n="installStep4"></li>
+
+    </ol>
+
+
+    <label
+      for="release-select"
+      data-i18n="releaseLabel">
+    </label>
+
+
+    <select
+      id="release-select"
+      disabled>
+
+      <option
+        value=""
+        data-i18n="loadingVersions">
+      </option>
+
+    </select>
+
+
+    <p
+      id="release-status"
+      role="status">
+    </p>
+
+
+    <esp-web-install-button
+      id="install-button"
+      manifest="manifest.json">
+
+      <button
+        class="install-action"
+        slot="activate"
+        data-i18n="installButton">
+      </button>
+
+
+      <span
+        slot="unsupported"
+        data-i18n="unsupportedBrowser">
+      </span>
+
+    </esp-web-install-button>
+
+  </div>
+
+
+  <!-- WIFI -->
+
+  <div class="panel">
+
+    <h2 data-i18n="wifiTitle"></h2>
 
     <p data-i18n="wifiDescription"></p>
 
-    <label for="wifi-ssid">SSID</label>
+
+    <label for="wifi-ssid">
+      SSID
+    </label>
+
     <input
       id="wifi-ssid"
       maxlength="32"
       autocomplete="off"
       data-i18n-placeholder="wifiSsidPlaceholder">
 
-    <label for="wifi-password" data-i18n="passwordLabel"></label>
+
+    <label
+      for="wifi-password"
+      data-i18n="passwordLabel">
+    </label>
+
     <input
       id="wifi-password"
       type="password"
@@ -265,402 +406,728 @@
       autocomplete="new-password"
       data-i18n-placeholder="wifiPasswordPlaceholder">
 
+
     <button
       class="serial-action"
       id="configure-wifi"
       type="button"
-      data-i18n="wifiSaveButton"></button>
+      data-i18n="wifiSaveButton">
+    </button>
 
-    <p id="serial-status" role="status"></p>
+
+    <p
+      id="serial-status"
+      role="status">
+    </p>
+
 
     <p>
-      <span data-i18n="serialCommandIntro"></span><br>
-      <code>&lt;WIFI "HomeSSID" "password"&gt;</code>
+
+      <span
+        data-i18n="serialCommandIntro">
+      </span>
+
+      <br>
+
+      <code>
+        &lt;WIFI "HomeSSID" "password"&gt;
+      </code>
+
     </p>
+
   </div>
+
+
+  <!-- AFTER INSTALLATION -->
+
+  <div class="panel success">
+
+    <h2 data-i18n="afterInstallTitle"></h2>
+
+    <ol>
+
+      <li data-i18n="afterStep1"></li>
+
+      <li data-i18n="afterStep2"></li>
+
+      <li data-i18n="afterStep3"></li>
+
+      <li data-i18n="afterStep4"></li>
+
+    </ol>
+
+  </div>
+
+
+  <!-- FALLBACK -->
 
   <div class="panel warning">
-    <strong data-i18n="fallbackTitle"></strong>
+
+    <h2 data-i18n="fallbackTitle"></h2>
 
     <p>
-      <span data-i18n="fallbackDescription1"></span>
-      <code>192.168.4.1</code>
-      <span data-i18n="fallbackDescription2"></span>
+
+      <span
+        data-i18n="fallbackDescription1">
+      </span>
+
+      <code>
+        192.168.4.1
+      </code>
+
+      <span
+        data-i18n="fallbackDescription2">
+      </span>
+
     </p>
+
   </div>
+
 
   <p data-i18n="mergedFirmwareDescription"></p>
 
-  <footer>DCCExpressLite Web Installer</footer>
+
+  <footer>
+    DCCExpressLite Web Installer
+  </footer>
 
 </main>
 
+
 <script>
+
   const translations = {
+
     hu: {
+
       intro:
         "Ezzel az oldallal közvetlenül a böngészőből telepíthető a DCCExpressLite firmware az USB-n csatlakoztatott ESP32 / EX-CSB1 eszközre.",
 
-      installationTitle: "Telepítés",
+
+      beforeInstallTitle:
+        "⚠ Telepítés előtt",
+
+
+      driverText1:
+        "Ha Windows alatt nem jelenik meg az EX-CSB1 soros portja, telepítsd a ",
+
+
+      driverLink:
+        "WCH CH340 / CH341 USB-soros drivert",
+
+
+      driverText2:
+        " a gyártó hivatalos oldaláról.",
+
+
+      backupWarning:
+        "Ha már van saját pályaterved, mozdonylistád vagy más fontos adatod, exportáld őket a telepítés előtt. A teljes firmware telepítése felülírhatja a LittleFS-ben tárolt adatokat.",
+
+
+      usbCableWarning:
+        "Használj adatátvitelre alkalmas USB kábelt. A csak töltésre alkalmas USB kábel nem működik.",
+
+
+      browserWarning:
+        "A böngészős telepítéshez asztali Chrome vagy Edge szükséges. Firefox és Safari nem támogatja a szükséges Web Serial kapcsolatot.",
+
+
+      installationTitle:
+        "Telepítés",
+
 
       installStep1:
         "Csatlakoztasd az ESP32 / EX-CSB1 eszközt USB-n.",
 
+
       installStep2:
-        "Chrome vagy Edge böngészőben nyomd meg az alábbi gombot.",
+        "Válaszd ki a telepítendő firmware-verziót.",
+
 
       installStep3:
-        "Válaszd ki az eszközhöz tartozó soros portot.",
+        "Nyomd meg a telepítés gombot, majd válaszd ki az EX-CSB1 soros portját.",
+
 
       installStep4:
-        "Indítsd el a telepítést, és ne húzd ki az USB kábelt a folyamat közben.",
+        "Indítsd el a telepítést. A folyamat közben ne húzd ki az USB kábelt, és ne zárd be a böngészőt.",
+
 
       releaseLabel:
         "Telepítendő verzió",
 
+
       loadingVersions:
         "Verziók betöltése…",
+
 
       installButton:
         "DCCExpressLite telepítése",
 
+
       unsupportedBrowser:
         "A böngésződ nem támogatja a Web Serial kapcsolatot. Használj asztali Chrome vagy Edge böngészőt.",
+
 
       prereleaseSelected:
         "Tesztverzió (prerelease) kiválasztva.",
 
+
       stableSelected:
         "Stabil verzió kiválasztva.",
+
 
       versionTest:
         "teszt",
 
+
       versionStable:
         "stabil",
+
 
       latest:
         "legújabb",
 
+
       versionsUnavailable:
-        "A verziólista most nem érhető el; a legújabb firmware továbbra is telepíthető.",
+        "A verziólista most nem érhető el; a legújabb publikált firmware továbbra is telepíthető.",
+
 
       latestPublishedVersion:
         "Legújabb publikált verzió",
 
+
       noInstallableRelease:
-        "Nincs telepíthető release.",
+        "Nincs telepíthető firmware-verzió.",
+
 
       wifiTitle:
         "Otthoni Wi-Fi beállítása USB-n",
 
+
       wifiDescription:
-        "A firmware telepítése és újraindulása után add meg az otthoni hálózatot. A böngésző elküldi a beállítást a DCC-EX soros portjára, az eszköz elmenti, majd automatikusan újraindul.",
+        "A firmware telepítése és az EX-CSB1 újraindulása után add meg az otthoni Wi-Fi hálózat adatait. A böngésző elküldi ezeket a soros porton, az eszköz elmenti, majd automatikusan újraindul.",
+
 
       wifiSsidPlaceholder:
         "Otthoni Wi-Fi neve",
 
+
       passwordLabel:
         "Jelszó",
+
 
       wifiPasswordPlaceholder:
         "Legalább 8 karakter",
 
+
       wifiSaveButton:
         "Wi-Fi mentése soros porton",
+
 
       serialCommandIntro:
         "Soros monitorból ugyanez a parancs használható 115200 baud mellett:",
 
+
+      afterInstallTitle:
+        "✓ Telepítés után",
+
+
+      afterStep1:
+        "Állítsd be az otthoni Wi-Fi hálózatot.",
+
+
+      afterStep2:
+        "Várd meg, amíg az EX-CSB1 újraindul és csatlakozik a hálózathoz.",
+
+
+      afterStep3:
+        "Nyisd meg a DCCExpressLite webes kezelőfelületét.",
+
+
+      afterStep4:
+        "Ha a telepítés előtt exportáltál saját pályát vagy egyéb adatokat, importáld őket vissza.",
+
+
       fallbackTitle:
-        "Ha az USB-s beállítás nem érhető el",
+        "Ha az USB-s Wi-Fi beállítás nem érhető el",
+
 
       fallbackDescription1:
-        "Csatlakozz a DCCExpressLite saját setup Wi-Fi hálózatára, majd nyisd meg a",
+        "Csatlakozz a DCCExpressLite saját setup Wi-Fi hálózatára, majd nyisd meg a ",
+
 
       fallbackDescription2:
-        "címet. Ugyanaz az SSID és jelszó az eszköz Settings oldalán is elmenthető.",
+        " címet. Az SSID és a jelszó az eszköz Settings oldalán is beállítható.",
+
 
       mergedFirmwareDescription:
-        "A telepítő egy GitHub Actions során előállított, egyesített ESP32 image-et használ. Ebben benne van a bootloader, partíciós tábla, firmware és a DCCExpressLite webes felületet tartalmazó LittleFS image is.",
+        "A telepítő egy GitHub Actions során előállított egyesített ESP32 image-et használ. Ebben benne van a bootloader, a partíciós tábla, a firmware és a DCCExpressLite webes felületét és alapadatait tartalmazó LittleFS image is.",
+
 
       webSerialUnsupported:
         "A böngésző nem támogatja a Web Serial kapcsolatot. Használj asztali Chrome vagy Edge böngészőt.",
 
+
       invalidSsid:
         "Az SSID 1–32 karakter hosszú legyen.",
+
 
       invalidPassword:
         "A jelszó 8–63 karakter hosszú legyen.",
 
+
       invalidQuotes:
-        "A soros parancsban az SSID és a jelszó nem tartalmazhat idézőjelet.",
+        "Az SSID és a jelszó nem tartalmazhat idézőjelet.",
+
 
       chooseSerialPort:
         "Válaszd ki újra az EX-CSB1 soros portját…",
 
+
       deviceStarting:
-        "Az EX-CSB1 indul, a Wi-Fi parancs küldése folyamatban…",
+        "Az EX-CSB1 indul. A Wi-Fi beállítás küldése folyamatban…",
+
 
       wifiSent:
         "A beállítás elküldve. Az EX-CSB1 menti a hálózatot és újraindul.",
 
+
       sendFailed:
         "Nem sikerült elküldeni:"
+
     },
 
+
     en: {
+
       intro:
         "Use this page to install DCCExpressLite firmware directly from your browser to an ESP32 / EX-CSB1 connected via USB.",
+
+
+      beforeInstallTitle:
+        "⚠ Before installation",
+
+
+      driverText1:
+        "If the EX-CSB1 serial port does not appear in Windows, install the ",
+
+
+      driverLink:
+        "WCH CH340 / CH341 USB-to-serial driver",
+
+
+      driverText2:
+        " from the manufacturer's official website.",
+
+
+      backupWarning:
+        "If you already have a custom layout, locomotive list, or other important data, export it before installation. A full firmware installation may overwrite data stored in LittleFS.",
+
+
+      usbCableWarning:
+        "Use a USB cable capable of data transfer. A charge-only USB cable will not work.",
+
+
+      browserWarning:
+        "Desktop Chrome or Edge is required for browser-based installation. Firefox and Safari do not support the required Web Serial connection.",
+
 
       installationTitle:
         "Installation",
 
+
       installStep1:
         "Connect the ESP32 / EX-CSB1 device via USB.",
 
+
       installStep2:
-        "Open this page in Chrome or Edge and press the button below.",
+        "Select the firmware version you want to install.",
+
 
       installStep3:
-        "Select the serial port belonging to the device.",
+        "Press the install button and select the serial port belonging to the EX-CSB1.",
+
 
       installStep4:
-        "Start the installation and do not disconnect the USB cable while flashing is in progress.",
+        "Start the installation. Do not disconnect the USB cable or close the browser while flashing is in progress.",
+
 
       releaseLabel:
         "Firmware version",
 
+
       loadingVersions:
         "Loading versions…",
+
 
       installButton:
         "Install DCCExpressLite",
 
+
       unsupportedBrowser:
         "Your browser does not support Web Serial. Use desktop Chrome or Edge.",
+
 
       prereleaseSelected:
         "Test version (prerelease) selected.",
 
+
       stableSelected:
         "Stable version selected.",
+
 
       versionTest:
         "test",
 
+
       versionStable:
         "stable",
+
 
       latest:
         "latest",
 
+
       versionsUnavailable:
         "The version list is currently unavailable; the latest published firmware can still be installed.",
+
 
       latestPublishedVersion:
         "Latest published version",
 
+
       noInstallableRelease:
-        "No installable release is available.",
+        "No installable firmware release is available.",
+
 
       wifiTitle:
         "Configure home Wi-Fi over USB",
 
+
       wifiDescription:
-        "After the firmware has been installed and the device has restarted, enter your home network details. The browser sends the configuration over the DCC-EX serial port, the device saves it, then restarts automatically.",
+        "After the firmware has been installed and the EX-CSB1 has restarted, enter your home Wi-Fi details. The browser sends them over the serial port, the device saves them, then restarts automatically.",
+
 
       wifiSsidPlaceholder:
         "Home Wi-Fi name",
 
+
       passwordLabel:
         "Password",
+
 
       wifiPasswordPlaceholder:
         "At least 8 characters",
 
+
       wifiSaveButton:
         "Save Wi-Fi over serial",
+
 
       serialCommandIntro:
         "The same command can be sent from a serial monitor at 115200 baud:",
 
+
+      afterInstallTitle:
+        "✓ After installation",
+
+
+      afterStep1:
+        "Configure your home Wi-Fi network.",
+
+
+      afterStep2:
+        "Wait for the EX-CSB1 to restart and connect to the network.",
+
+
+      afterStep3:
+        "Open the DCCExpressLite web interface.",
+
+
+      afterStep4:
+        "If you exported your custom layout or other data before installation, import it again.",
+
+
       fallbackTitle:
-        "If USB configuration is unavailable",
+        "If USB Wi-Fi configuration is unavailable",
+
 
       fallbackDescription1:
-        "Connect to the DCCExpressLite setup Wi-Fi network, then open",
+        "Connect to the DCCExpressLite setup Wi-Fi network, then open ",
+
 
       fallbackDescription2:
-        "in your browser. The same SSID and password can also be saved from the device Settings page.",
+        ". The SSID and password can also be configured from the device Settings page.",
+
 
       mergedFirmwareDescription:
-        "The installer uses a merged ESP32 image generated by GitHub Actions. It includes the bootloader, partition table, firmware and the LittleFS image containing the DCCExpressLite web interface.",
+        "The installer uses a merged ESP32 image generated by GitHub Actions. It contains the bootloader, partition table, firmware, and the LittleFS image containing the DCCExpressLite web interface and starter data.",
+
 
       webSerialUnsupported:
         "Your browser does not support Web Serial. Use desktop Chrome or Edge.",
 
+
       invalidSsid:
         "The SSID must be between 1 and 32 characters.",
+
 
       invalidPassword:
         "The password must be between 8 and 63 characters.",
 
+
       invalidQuotes:
         "The SSID and password cannot contain double quotes.",
+
 
       chooseSerialPort:
         "Select the EX-CSB1 serial port again…",
 
+
       deviceStarting:
         "The EX-CSB1 is starting. Sending Wi-Fi configuration…",
+
 
       wifiSent:
         "Configuration sent. The EX-CSB1 is saving the network settings and restarting.",
 
+
       sendFailed:
         "Could not send configuration:"
+
     }
+
   };
+
 
   const releasesUrl =
     "https://api.github.com/repos/DCCExpress/DCCExpressLite/releases?per_page=30";
 
+
   const releaseSelect =
     document.getElementById("release-select");
+
 
   const releaseStatus =
     document.getElementById("release-status");
 
+
   const installerVersion =
     document.getElementById("installer-version");
+
 
   const wifiButton =
     document.getElementById("configure-wifi");
 
+
   const serialStatus =
     document.getElementById("serial-status");
+
 
   const langHuButton =
     document.getElementById("lang-hu");
 
+
   const langEnButton =
     document.getElementById("lang-en");
 
+
   let releases = [];
+
   let currentRelease = null;
 
-  function getInitialLanguage() {
-    const saved =
-      localStorage.getItem("dccexpress-installer-language");
 
-    if (saved === "hu" || saved === "en") {
+  function getInitialLanguage() {
+
+    const saved =
+      localStorage.getItem(
+        "dccexpress-installer-language"
+      );
+
+
+    if (
+      saved === "hu" ||
+      saved === "en"
+    ) {
       return saved;
     }
+
 
     return navigator.language
       ?.toLowerCase()
       .startsWith("hu")
-      ? "hu"
-      : "en";
+        ? "hu"
+        : "en";
+
   }
 
-  let currentLanguage = getInitialLanguage();
+
+  let currentLanguage =
+    getInitialLanguage();
+
 
   function t(key) {
-    return translations[currentLanguage][key] ?? key;
+
+    return (
+      translations[currentLanguage][key]
+      ?? key
+    );
+
   }
 
+
   function applyLanguage(language) {
-    currentLanguage = language;
+
+    currentLanguage =
+      language;
+
 
     localStorage.setItem(
       "dccexpress-installer-language",
       language
     );
 
-    document.documentElement.lang = language;
 
-    document.querySelectorAll("[data-i18n]").forEach(element => {
-      const key = element.dataset.i18n;
-      element.textContent = t(key);
-    });
+    document.documentElement.lang =
+      language;
+
 
     document
-      .querySelectorAll("[data-i18n-placeholder]")
+      .querySelectorAll("[data-i18n]")
       .forEach(element => {
-        const key = element.dataset.i18nPlaceholder;
-        element.placeholder = t(key);
+
+        const key =
+          element.dataset.i18n;
+
+        element.textContent =
+          t(key);
+
       });
+
+
+    document
+      .querySelectorAll(
+        "[data-i18n-placeholder]"
+      )
+      .forEach(element => {
+
+        const key =
+          element.dataset.i18nPlaceholder;
+
+        element.placeholder =
+          t(key);
+
+      });
+
 
     langHuButton.classList.toggle(
       "active",
       language === "hu"
     );
 
+
     langEnButton.classList.toggle(
       "active",
       language === "en"
     );
 
+
     rebuildReleaseOptions();
 
+
     if (currentRelease) {
-      updateSelectedReleaseText(currentRelease);
+
+      updateSelectedReleaseText(
+        currentRelease
+      );
+
     }
+
   }
+
 
   langHuButton.addEventListener(
     "click",
     () => applyLanguage("hu")
   );
 
+
   langEnButton.addEventListener(
     "click",
     () => applyLanguage("en")
   );
 
-  function setInstallManifest(manifestUrl) {
+
+  function setInstallManifest(
+    manifestUrl
+  ) {
+
     const oldButton =
-      document.getElementById("install-button");
+      document.getElementById(
+        "install-button"
+      );
+
 
     const newButton =
       oldButton.cloneNode(true);
+
 
     newButton.setAttribute(
       "manifest",
       manifestUrl
     );
 
-    oldButton.replaceWith(newButton);
+
+    oldButton.replaceWith(
+      newButton
+    );
+
   }
 
-  function updateSelectedReleaseText(release) {
+
+  function updateSelectedReleaseText(
+    release
+  ) {
+
     installerVersion.textContent =
       `${release.tagName} · ESP32 / EX-CSB1`;
+
 
     releaseStatus.textContent =
       release.prerelease
         ? t("prereleaseSelected")
         : t("stableSelected");
+
   }
 
+
   function selectRelease(release) {
+
     if (!release) {
       return;
     }
 
-    currentRelease = release;
+
+    currentRelease =
+      release;
+
 
     setInstallManifest(
       release.manifestUrl
     );
 
-    updateSelectedReleaseText(release);
+
+    updateSelectedReleaseText(
+      release
+    );
+
   }
 
+
   function rebuildReleaseOptions() {
+
     if (!releases.length) {
+
       releaseSelect.replaceChildren(
         new Option(
           t("loadingVersions"),
@@ -669,7 +1136,9 @@
       );
 
       return;
+
     }
+
 
     const selectedIndex =
       currentRelease
@@ -680,32 +1149,45 @@
           )
         : 0;
 
+
     releaseSelect.replaceChildren(
+
       ...releases.map(
         (release, index) => {
+
           const option =
-            document.createElement("option");
+            document.createElement(
+              "option"
+            );
+
 
           option.value =
             String(index);
+
 
           const channel =
             release.prerelease
               ? t("versionTest")
               : t("versionStable");
 
+
           const latest =
             index === 0
               ? ` · ${t("latest")}`
               : "";
 
+
           option.textContent =
             `${release.tagName} · ${channel}${latest}`;
 
+
           return option;
+
         }
       )
+
     );
+
 
     releaseSelect.value =
       String(
@@ -713,9 +1195,12 @@
           ? selectedIndex
           : 0
       );
+
   }
 
+
   async function fetchReleaseIndex() {
+
     const response =
       await fetch(
         "releases.json",
@@ -724,21 +1209,29 @@
         }
       );
 
+
     if (!response.ok) {
+
       throw new Error(
         `Release index: ${response.status}`
       );
+
     }
 
+
     return response.json();
+
   }
 
+
   async function fetchGitHubReleases() {
+
     const response =
       await fetch(
         releasesUrl,
         {
           cache: "no-store",
+
           headers: {
             Accept:
               "application/vnd.github+json"
@@ -746,19 +1239,28 @@
         }
       );
 
+
     if (!response.ok) {
+
       throw new Error(
         `GitHub API: ${response.status}`
       );
+
     }
 
-    return (await response.json())
+
+    return (
+      await response.json()
+    )
+
       .filter(
         release =>
           !release.draft
       )
+
       .map(
         release => ({
+
           tagName:
             release.tag_name,
 
@@ -773,39 +1275,56 @@
             )
               ? `https://dccexpress.github.io/DCCExpressLite/firmware/${release.tag_name}/manifest.json`
               : null
+
         })
       )
+
       .filter(
         release =>
           release.manifestUrl
       );
+
   }
 
+
   async function loadReleases() {
+
     try {
+
       try {
+
         releases =
           await fetchReleaseIndex();
+
       }
       catch (_) {
+
         releases =
           await fetchGitHubReleases();
+
       }
 
+
       if (!releases.length) {
+
         throw new Error(
           t("noInstallableRelease")
         );
+
       }
 
+
       rebuildReleaseOptions();
+
 
       releaseSelect.disabled =
         false;
 
+
       releaseSelect.addEventListener(
         "change",
         () => {
+
           selectRelease(
             releases[
               Number(
@@ -813,25 +1332,36 @@
               )
             ]
           );
+
         }
       );
+
 
       selectRelease(
         releases[0]
       );
+
     }
     catch (error) {
+
       releases = [];
+
 
       releaseSelect.replaceChildren(
         new Option(
-          t("latestPublishedVersion"),
+          t(
+            "latestPublishedVersion"
+          ),
           ""
         )
       );
 
+
       releaseStatus.textContent =
-        t("versionsUnavailable");
+        t(
+          "versionsUnavailable"
+        );
+
 
       fetch(
         "manifest.json",
@@ -839,90 +1369,135 @@
           cache: "no-store"
         }
       )
+
         .then(
           response =>
             response.ok
               ? response.json()
               : null
         )
+
         .then(
           manifest => {
-            if (manifest?.version) {
+
+            if (
+              manifest?.version
+            ) {
+
               installerVersion.textContent =
                 `v${manifest.version} · ESP32 / EX-CSB1`;
+
             }
+
           }
         )
+
         .catch(
           () => undefined
         );
+
     }
+
   }
+
 
   wifiButton.addEventListener(
     "click",
     async () => {
+
       const ssid =
         document.getElementById(
           "wifi-ssid"
         ).value;
+
 
       const password =
         document.getElementById(
           "wifi-password"
         ).value;
 
+
       if (!navigator.serial) {
+
         serialStatus.textContent =
-          t("webSerialUnsupported");
+          t(
+            "webSerialUnsupported"
+          );
+
         return;
+
       }
+
 
       if (
         !ssid ||
         ssid.length > 32
       ) {
+
         serialStatus.textContent =
           t("invalidSsid");
+
         return;
+
       }
+
 
       if (
         password.length < 8 ||
         password.length > 63
       ) {
+
         serialStatus.textContent =
-          t("invalidPassword");
+          t(
+            "invalidPassword"
+          );
+
         return;
+
       }
+
 
       if (
         ssid.includes('"') ||
         password.includes('"')
       ) {
+
         serialStatus.textContent =
           t("invalidQuotes");
+
         return;
+
       }
+
 
       wifiButton.disabled =
         true;
 
+
       let port;
 
+
       try {
+
         serialStatus.textContent =
-          t("chooseSerialPort");
+          t(
+            "chooseSerialPort"
+          );
+
 
         port =
-          await navigator.serial.requestPort();
+          await navigator.serial
+            .requestPort();
+
 
         await port.open({
           baudRate: 115200
         });
 
+
         serialStatus.textContent =
           t("deviceStarting");
+
 
         await new Promise(
           resolve =>
@@ -932,8 +1507,10 @@
             )
         );
 
+
         const writer =
           port.writable.getWriter();
+
 
         await writer.write(
           new TextEncoder().encode(
@@ -941,7 +1518,9 @@
           )
         );
 
+
         writer.releaseLock();
+
 
         await new Promise(
           resolve =>
@@ -951,35 +1530,57 @@
             )
         );
 
+
         serialStatus.textContent =
           t("wifiSent");
+
       }
       catch (error) {
+
         serialStatus.textContent =
-          `${t("sendFailed")} ${error?.message || error}`;
+          `${t("sendFailed")} ${
+            error?.message ||
+            error
+          }`;
+
       }
       finally {
+
         if (port) {
+
           try {
+
             await port.close();
+
           }
           catch (_) {
-            // The restarting ESP32 may
-            // already be disconnected.
+
+            /*
+             * The restarting ESP32
+             * may already be disconnected.
+             */
+
           }
+
         }
+
 
         wifiButton.disabled =
           false;
+
       }
+
     }
   );
+
 
   applyLanguage(
     currentLanguage
   );
 
+
   loadReleases();
+
 </script>
 
 </body>
