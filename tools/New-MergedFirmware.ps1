@@ -52,4 +52,11 @@ $webManifest = [ordered]@{
 }
 $webManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $WebInstallerOutputDirectory 'manifest.json') -Encoding utf8NoBOM
 
+$releaseIndex = @([ordered]@{
+  tagName = "v$Version"
+  prerelease = $Version.Contains('-')
+  manifestUrl = 'manifest.json'
+})
+ConvertTo-Json -InputObject $releaseIndex -Depth 4 | Set-Content -LiteralPath (Join-Path $WebInstallerOutputDirectory 'releases.json') -Encoding utf8NoBOM
+
 Write-Output $releasePath

@@ -2,6 +2,13 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## 0.1.0-alpha.6 - 2026-08-26
+
+- Added a release selector to the browser installer.
+- Every published release containing a merged firmware image can now be installed directly.
+- Mirrored selectable firmware images on GitHub Pages to avoid browser cross-origin restrictions.
+- Kept the latest published firmware as a fallback when the release index is unavailable.
+
 ## 0.1.0-alpha.5 - 2026-08-26
 
 - Always stage the versioned starter layout, locomotive roster and locomotive images into clean LittleFS builds.

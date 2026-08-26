@@ -101,7 +101,8 @@
       font-weight: 650;
     }
 
-    input {
+    input,
+    select {
       width: 100%;
       min-height: 46px;
       border: 1px solid #334155;
@@ -110,6 +111,14 @@
       color: #f8fafc;
       padding: 10px 12px;
       font: inherit;
+    }
+
+    select { cursor: pointer; }
+
+    #release-status {
+      min-height: 1.5em;
+      margin: 8px 0 0;
+      color: #93c5fd;
     }
 
     button.serial-action {
@@ -161,7 +170,13 @@
       <li>Indítsd el a telepítést, és ne húzd ki az USB kábelt a folyamat közben.</li>
     </ol>
 
-    <esp-web-install-button manifest="manifest.json">
+    <label for="release-select">Telepítendő verzió</label>
+    <select id="release-select" disabled>
+      <option value="">Verziók betöltése…</option>
+    </select>
+    <p id="release-status" role="status"></p>
+
+    <esp-web-install-button id="install-button" manifest="manifest.json">
       <button class="install-action" slot="activate">DCCExpressLite telepítése</button>
       <span slot="unsupported">
         A böngésződ nem támogatja a Web Serial kapcsolatot.
@@ -207,14 +222,84 @@
   <footer>DCCExpressLite Web Installer</footer>
 </main>
 <script>
-  fetch("manifest.json", { cache: "no-store" })
-    .then(response => response.ok ? response.json() : null)
-    .then(manifest => {
-      if (manifest?.version) {
-        document.getElementById("installer-version").textContent = `v${manifest.version} · ESP32 / EX-CSB1`;
+  const releasesUrl = "https://api.github.com/repos/DCCExpress/DCCExpressLite/releases?per_page=30";
+  const releaseSelect = document.getElementById("release-select");
+  const releaseStatus = document.getElementById("release-status");
+  const installerVersion = document.getElementById("installer-version");
+
+  function setInstallManifest(manifestUrl) {
+    const oldButton = document.getElementById("install-button");
+    const newButton = oldButton.cloneNode(true);
+    newButton.setAttribute("manifest", manifestUrl);
+    oldButton.replaceWith(newButton);
+  }
+
+  function selectRelease(release) {
+    setInstallManifest(release.manifestUrl);
+
+    installerVersion.textContent = `${release.tagName} · ESP32 / EX-CSB1`;
+    releaseStatus.textContent = release.prerelease
+      ? "Tesztverzió (prerelease) kiválasztva."
+      : "Stabil verzió kiválasztva.";
+  }
+
+  async function fetchReleaseIndex() {
+    const indexResponse = await fetch("releases.json", { cache: "no-store" });
+    if (!indexResponse.ok) throw new Error(`Verziójegyzék: ${indexResponse.status}`);
+    return indexResponse.json();
+  }
+
+  async function fetchGitHubReleases() {
+    const response = await fetch(releasesUrl, {
+      cache: "no-store",
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (!response.ok) throw new Error(`GitHub API: ${response.status}`);
+    return (await response.json())
+      .filter(release => !release.draft)
+      .map(release => ({
+        tagName: release.tag_name,
+        prerelease: release.prerelease,
+        manifestUrl: release.assets.some(asset => /^DCCExpressLite-.+-merged\.bin$/.test(asset.name))
+          ? `https://dccexpress.github.io/DCCExpressLite/firmware/${release.tag_name}/manifest.json`
+          : null
+      }))
+      .filter(release => release.manifestUrl);
+  }
+
+  async function loadReleases() {
+    try {
+      let releases;
+      try {
+        releases = await fetchReleaseIndex();
+      } catch (_) {
+        releases = await fetchGitHubReleases();
       }
-    })
-    .catch(() => undefined);
+      if (!releases.length) throw new Error("Nincs telepíthető release.");
+
+      releaseSelect.replaceChildren(...releases.map((release, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `${release.tagName}${release.prerelease ? " · teszt" : " · stabil"}${index === 0 ? " · legújabb" : ""}`;
+        return option;
+      }));
+      releaseSelect.disabled = false;
+      releaseSelect.addEventListener("change", () => selectRelease(releases[Number(releaseSelect.value)]));
+      selectRelease(releases[0]);
+    } catch (error) {
+      releaseSelect.replaceChildren(new Option("Legújabb publikált verzió", ""));
+      releaseStatus.textContent = "A verziólista most nem érhető el; a legújabb firmware továbbra is telepíthető.";
+
+      fetch("manifest.json", { cache: "no-store" })
+        .then(response => response.ok ? response.json() : null)
+        .then(manifest => {
+          if (manifest?.version) installerVersion.textContent = `v${manifest.version} · ESP32 / EX-CSB1`;
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  loadReleases();
 
   const wifiButton = document.getElementById("configure-wifi");
   const serialStatus = document.getElementById("serial-status");

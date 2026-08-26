@@ -11,10 +11,11 @@ DCCExpressLite is a self-contained ESP32/EX-CSB1 command-station firmware with a
 For most users the quickest route is the **[DCCExpressLite Web Installer](https://dccexpress.github.io/DCCExpressLite/)**.
 
 1. Open the installer in desktop Chrome or Edge.
-2. Connect the EX-CSB1 with USB.
-3. Select its serial port and start installation.
-4. Keep the USB cable connected until flashing finishes.
-5. After installation, enter the home SSID and password on the same installer page and send them over the selected serial port.
+2. Select the DCCExpressLite version to install.
+3. Connect the EX-CSB1 with USB.
+4. Select its serial port and start installation.
+5. Keep the USB cable connected until flashing finishes.
+6. After installation, enter the home SSID and password on the same installer page and send them over the selected serial port.
 
 The web installer flashes one verified merged image containing the bootloader, partition table, firmware, embedded web application, starter layout, four locomotives and their images. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
 
