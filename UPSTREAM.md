@@ -24,7 +24,7 @@ DCCExpressLite starts from the upstream `mySetup.h` extension point.
 
 ## Small upstream patch surface
 
-Only four upstream files contain DCCExpressLite integration hooks:
+Only five upstream files contain DCCExpressLite integration hooks:
 
 1. `DCCEXParser.cpp` calls an optional weak `myRawCommand()` hook before
    tokenisation. This preserves quoted `<WIFI "ssid" "password">` values.
@@ -34,9 +34,15 @@ Only four upstream files contain DCCExpressLite integration hooks:
    Devices tab.
 4. `TrackManager.h` grants `DCCExpressLite` read-only current-measurement
    access for the Info tab.
+5. `WifiESP32.cpp` honours `DCCEXPRESSLITE_ENABLE_DCCEX_PORT`. The Lite
+   configuration sets it to `0`, retaining upstream ESP32 Wi-Fi connection and
+   reconnection management while omitting the optional port 2560
+   DCC-EX/WiThrottle TCP and WebSocket listener and its 10 KB output ring.
 
-All product behaviour is implemented in the DCCExpressLite-owned modules; the
-hooks contain no HTTP, WebSocket, JSON, LittleFS or Wi-Fi implementation.
+All product behaviour is implemented in the DCCExpressLite-owned modules. The
+first four hooks contain no HTTP, WebSocket, JSON, LittleFS or Wi-Fi
+implementation; the fifth is only a compile-time gate around the optional
+upstream network-command listener.
 
 ## Future upgrade procedure
 
@@ -45,7 +51,7 @@ hooks contain no HTTP, WebSocket, JSON, LittleFS or Wi-Fi implementation.
 2. Copy the upstream top-level `.ino`, `.cpp` and `.h` files plus `LICENSE`
    into `CommandStation-EX/`. Do not overwrite the DCCExpressLite-owned files
    listed above or `config.h`/`mySetup.h`.
-3. Reapply the four small hooks listed above. A failed context is intentional:
+3. Reapply the five small hooks listed above. A failed context is intentional:
    review the changed upstream API rather than silently accepting it.
 4. Confirm that `CommandStation-EX.ino` is byte-for-byte identical to the
    selected upstream tag.

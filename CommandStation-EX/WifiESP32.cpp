@@ -33,6 +33,13 @@
 #include "WiThrottle.h"
 #include "DCC.h"
 #include "Websockets.h"
+
+// Upstream behaviour remains enabled unless a product configuration opts out.
+// DCCExpressLite disables only the DCC-EX/WiThrottle listener while retaining
+// the ESP32 Wi-Fi connection used by its HTTP server.
+#ifndef DCCEXPRESSLITE_ENABLE_DCCEX_PORT
+#define DCCEXPRESSLITE_ENABLE_DCCEX_PORT 1
+#endif
 /*
 #include "soc/rtc_wdt.h"
 #include "esp_task_wdt.h"
@@ -73,6 +80,7 @@ void disableCoreWDT(byte core){
 }
 */
 
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
 class NetworkClient {
 public:
   NetworkClient(WiFiClient c) {
@@ -115,6 +123,7 @@ private:
 // file scope variables
 static std::vector<NetworkClient> clients; // a list to hold all clients
 static RingStream *outboundRing = new RingStream(10240);
+#endif
 static bool APmode = false;
 // init of static class scope variables
 bool WifiESP::wifiUp = false;
@@ -137,12 +146,14 @@ char asciitolower(char in) {
 void WifiESP::teardown() {
   // stop all locos
   DCC::setThrottle(0,1,1); // this broadcasts speed 1(estop) and sets all reminders to speed 1.
-  // terminate all clients connections
+  // terminate all DCC-EX/WiThrottle client connections
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
   while (!clients.empty()) {
     // pop_back() should invoke destructor which does stop()
     // on the underlying TCP connction
     clients.pop_back();
   }
+#endif
   // stop server
   if (server != NULL) {
     server->stop();
@@ -319,6 +330,7 @@ bool WifiESP::setup(const char *SSid,
   if(!MDNS.begin(hostname)) {
     DIAG(F("Wifi setup failed to start mDNS"));
   }
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
   if(!MDNS.addService("withrottle", "tcp", port)) {
     DIAG(F("Wifi setup failed to add withrottle service to mDNS"));
   }
@@ -326,6 +338,10 @@ bool WifiESP::setup(const char *SSid,
   server = new WiFiServer(port); // start listening on tcp port
   server->begin();
   // server started here
+#else
+  (void)port;
+  DIAG(F("DCC-EX network server disabled"));
+#endif
 
 #ifdef WIFI_TASK_ON_CORE0
   //start loop task
@@ -343,9 +359,13 @@ bool WifiESP::setup(const char *SSid,
 
   // report server started after wifiLoop creation
   // when everything looks good
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
   DIAG(F("Server starting (core 0) port %d"),port);
+#endif
 #else
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
   DIAG(F("Server will be started on port %d"),port);
+#endif
 #endif
   return true;
 }
@@ -361,11 +381,14 @@ const char *wlerror[] = {
 };
 
 void WifiESP::loop() {
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
   int clientId; //tmp loop var
+#endif
 
   // really no good way to check for LISTEN especially in AP mode?
   wl_status_t wlStatus;
   if (APmode || (wlStatus = WiFi.status()) == WL_CONNECTED) {
+#if DCCEXPRESSLITE_ENABLE_DCCEX_PORT
     if (server->hasClient()) {
       WiFiClient client;
       while (client = server->available()) {
@@ -442,6 +465,7 @@ void WifiESP::loop() {
 	}
       }
     }
+#endif
   } else if (!APmode) { // in STA mode but not connected any more
     // kick it again
     if (wlStatus <= 6) {

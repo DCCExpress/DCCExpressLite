@@ -18,6 +18,12 @@
 #define WIFI_FORCE_AP false
 #define IP_PORT 2560
 
+// DCCExpressLite serves its UI and JSON API through HTTP port 80 and /ws.
+// Keep the upstream Wi-Fi connection management, but do not allocate or open
+// the additional DCC-EX/WiThrottle TCP and WebSocket server on port 2560.
+// Set this to 1 only when compatibility with external DCC-EX clients is needed.
+#define DCCEXPRESSLITE_ENABLE_DCCEX_PORT 0
+
 #include "DCCExpressLite.h"
 
 #endif
