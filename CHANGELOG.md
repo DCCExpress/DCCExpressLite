@@ -2,6 +2,17 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## 0.1.0-alpha.3 - 2026-08-27
+
+- Added locomotive, accessory and DigiTools decoder programming from the embedded UI.
+- Added ID-based automatic signal logic with turnout and sensor conditions, safe RED fallback and sequential physical accessory output.
+- Added a project-wide integrity checker for layout IDs, route-button turnout references, automatic routes, signal rules and locomotives.
+- Added temperature status levels and a one-shot critical-temperature warning with hysteresis.
+- Added a Layout Editor HELP link to the online GitHub Wiki.
+- Fixed a small heap leak after LittleFS file uploads.
+- Synchronized the release starter data with the tested device: current layout, turnout address, three signals, four locomotives, images and active signal rules.
+- Added illustrated online documentation for installation, layout editing, routes, signals, locomotive control, decoder programming, files, diagnostics and development.
+
 ## 0.1.0-alpha.2 - 2026-08-27
 
 - Upgraded and isolated the CommandStation-EX integration for easier future upstream updates.

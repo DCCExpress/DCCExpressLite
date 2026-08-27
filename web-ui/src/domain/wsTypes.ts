@@ -144,6 +144,7 @@ export const CLIENT_WS_MESSAGE_TYPES = [
   "commandCenterConfigCommand",
   "appSettingsCommand",
   "signalLogicCommand",
+  "programmingCommand",
   "blockAutomationCommand",
   "levelCrossingCommand",
   "automationCommand",
@@ -266,6 +267,11 @@ export type SignalLogicResponsePayload = WsCommandResponseMeta & {
   deletedSignalAddresses?: number[];
 };
 
+export type ProgrammingResponsePayload = WsCommandResponseMeta & {
+  raw?: string;
+  value?: number;
+};
+
 export type FastClockResponsePayload = WsCommandResponseMeta & {
   snapshot?: FastClockSnapshot;
   speed?: number;
@@ -358,6 +364,7 @@ export type ServerWsPayloadMap = {
   commandCenterConfigResponse: CommandCenterConfigResponsePayload;
   appSettingsResponse: AppSettingsResponsePayload;
   signalLogicResponse: SignalLogicResponsePayload;
+  programmingResponse: ProgrammingResponsePayload;
   signalLogicStateChanged: SignalLogicRuntimeStateDto;
   blockAutomationResponse: BlockAutomationResponsePayload;
   levelCrossingResponse: LevelCrossingResponsePayload;

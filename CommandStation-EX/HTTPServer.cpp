@@ -3,6 +3,7 @@
 #include "DCCEXParser.h"
 #include "DCC.h"
 #include "DCCExpressLite.h"
+#include "DCCExpressLiteSignalLogic.h"
 #include "HTTPSerialWrapper.h"
 #include "HTTPServer.h"
 #include <esp_freertos_hooks.h>
@@ -75,6 +76,9 @@ static unsigned long lastWsCleanupAtMs = 0;
 static esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 
 static const char *resetReasonName(esp_reset_reason_t reason);
+static int getInt(JsonVariantConst value, int fallback = 0);
+static bool getBool(JsonVariantConst value, bool fallback = false);
+static void sendPowerInfo(uint32_t clientId = 0);
 
 static bool enqueueWsInbound(WsInboundKind kind, uint32_t clientId,
                              const uint8_t *payload = nullptr, size_t length = 0)
@@ -197,6 +201,21 @@ static File layoutUploadFile;
 static bool layoutUploadOk = false;
 static File locosUploadFile;
 static bool locosUploadOk = false;
+static volatile bool signalLogicReloadPending = false;
+
+struct ProgrammingRequestState
+{
+  bool active = false;
+  uint32_t clientId = 0;
+  String requestId;
+  String action;
+  int cv = -1;
+  int value = -1;
+  unsigned long deadlineMs = 0;
+};
+
+static ProgrammingRequestState programmingRequest;
+static const unsigned long PROGRAMMING_TIMEOUT_MS = 20000;
 
 static const int MAX_RUNTIME_LOCOS = 32;
 static int locoAddresses[MAX_RUNTIME_LOCOS] = {0};
@@ -209,6 +228,11 @@ static bool configuredLocoInverted[MAX_RUNTIME_LOCOS] = {false};
 static const int MAX_LINEAR_ACCESSORY_ADDRESS = 2048;
 static int8_t turnoutStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
 static int8_t basicAccessoryStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
+
+static int8_t readTurnoutStateForSignalLogic(uint16_t address)
+{
+  return address <= MAX_LINEAR_ACCESSORY_ADDRESS ? turnoutStateCache[address] : -1;
+}
 
 static String escapeJson(const String &input)
 {
@@ -374,6 +398,195 @@ static void dccParseRaw(const String &raw)
   DCCEXParser::parse(&httpCommandStream, command.data(), nullptr);
 }
 
+static void writeBasicAccessoryState(uint16_t address, bool active)
+{
+  if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS) return;
+  dccParseRaw("<a " + String(address) + " " + String(active ? 1 : 0) + ">");
+  basicAccessoryStateCache[address] = active ? 1 : 0;
+  broadcastMessage("accessoryChanged", "{\"address\":" + String(address) + ",\"active\":" + String(active ? "true" : "false") + "}");
+}
+
+static String programmingResponseData(const String &requestId, const String &action,
+                                      bool ok, const String &message,
+                                      const String &raw = "", int value = -32768)
+{
+  String data = "{\"requestId\":\"" + escapeJson(requestId) + "\"";
+  data += ",\"action\":\"" + escapeJson(action) + "\"";
+  data += ",\"ok\":" + String(ok ? "true" : "false");
+  data += ",\"message\":\"" + escapeJson(message) + "\"";
+  if (raw.length()) data += ",\"raw\":\"" + escapeJson(raw) + "\"";
+  if (value != -32768) data += ",\"value\":" + String(value);
+  data += "}";
+  return data;
+}
+
+static void finishProgrammingRequest(bool ok, const String &message,
+                                     const String &raw = "", int value = -32768)
+{
+  if (!programmingRequest.active) return;
+  sendToClient(programmingRequest.clientId, "programmingResponse",
+    programmingResponseData(programmingRequest.requestId, programmingRequest.action,
+                            ok, message, raw, value));
+  dccParseRaw("<0 PROG>");
+  programmingModeActive = false;
+  sendPowerInfo();
+  programmingRequest = ProgrammingRequestState();
+}
+
+static bool parseLastInteger(const String &raw, int &value)
+{
+  int end = raw.lastIndexOf('>');
+  if (end < 0) end = raw.length();
+  int start = end - 1;
+  while (start >= 0 && raw.charAt(start) == ' ') --start;
+  end = start + 1;
+  while (start >= 0 && (isDigit(raw.charAt(start)) || raw.charAt(start) == '-')) --start;
+  if (end <= start + 1) return false;
+  value = raw.substring(start + 1, end).toInt();
+  return true;
+}
+
+static void handleProgrammingOutput(const String &raw)
+{
+  if (!programmingRequest.active) return;
+
+  bool matches = false;
+  if (programmingRequest.action == "readAddress")
+    matches = raw.startsWith("<r ");
+  else if (programmingRequest.action == "writeAddress")
+    matches = raw.startsWith("<w ");
+  else if (programmingRequest.action == "readCv")
+    matches = raw.startsWith("<v ") || raw.startsWith("<r ");
+  else if (programmingRequest.action == "writeCv")
+    matches = raw.startsWith("<r ");
+
+  if (!matches) return;
+
+  int result = -1;
+  const bool parsed = parseLastInteger(raw, result);
+  finishProgrammingRequest(parsed && result >= 0,
+    parsed && result >= 0 ? "Programming completed." : "The decoder did not acknowledge the command.",
+    raw, parsed ? result : -1);
+}
+
+static void handleProgrammingCommand(uint32_t clientId, JsonObjectConst payload,
+                                     const char *uuid)
+{
+  const String requestId = payload["requestId"] | "";
+  const String action = payload["action"] | "";
+  if (!requestId.length())
+  {
+    sendError(clientId, "missing_programming_request_id", uuid);
+    return;
+  }
+
+  if (programmingRequest.active)
+  {
+    sendToClient(clientId, "programmingResponse",
+      programmingResponseData(requestId, action, false,
+        "Another decoder programming operation is still running."), uuid);
+    return;
+  }
+
+  const int address = getInt(payload["address"]);
+  const int cv = getInt(payload["cv"]);
+  const int value = getInt(payload["value"]);
+
+  if (action == "pomWriteCv")
+  {
+    if (address < 1 || address > 10239 || cv < 1 || cv > 1024 || value < 0 || value > 255)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "Invalid locomotive address, CV or value."), uuid);
+      return;
+    }
+    if (!trackPowerOn)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "Main track power is off."), uuid);
+      return;
+    }
+    dccParseRaw("<w " + String(address) + " " + String(cv) + " " + String(value) + ">");
+    sendToClient(clientId, "programmingResponse",
+      programmingResponseData(requestId, action, true,
+        "POM write command sent. POM does not provide an acknowledgement."), uuid);
+    return;
+  }
+
+  if (action == "accessoryLearn")
+  {
+    if (address < 1 || address > 2044)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "Accessory address must be between 1 and 2044."), uuid);
+      return;
+    }
+    if (!trackPowerOn)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "Main track power is off."), uuid);
+      return;
+    }
+    const bool active = getBool(payload["active"]);
+    writeBasicAccessoryState(address, active);
+    sendToClient(clientId, "programmingResponse",
+      programmingResponseData(requestId, action, true,
+        "Accessory command sent to the main track."), uuid);
+    return;
+  }
+
+  String command;
+  if (action == "readAddress") command = "<R>";
+  else if (action == "writeAddress")
+  {
+    if (address < 1 || address > 10239)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "Locomotive address must be between 1 and 10239."), uuid);
+      return;
+    }
+    command = "<W " + String(address) + ">";
+  }
+  else if (action == "readCv")
+  {
+    if (cv < 1 || cv > 1024)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "CV must be between 1 and 1024."), uuid);
+      return;
+    }
+    command = "<R " + String(cv) + ">";
+  }
+  else if (action == "writeCv")
+  {
+    if (cv < 1 || cv > 1024 || value < 0 || value > 255)
+    {
+      sendToClient(clientId, "programmingResponse",
+        programmingResponseData(requestId, action, false, "CV must be 1-1024 and value must be 0-255."), uuid);
+      return;
+    }
+    command = "<W " + String(cv) + " " + String(value) + ">";
+  }
+  else
+  {
+    sendToClient(clientId, "programmingResponse",
+      programmingResponseData(requestId, action, false, "Unsupported programming action."), uuid);
+    return;
+  }
+
+  programmingRequest.active = true;
+  programmingRequest.clientId = clientId;
+  programmingRequest.requestId = requestId;
+  programmingRequest.action = action;
+  programmingRequest.cv = cv;
+  programmingRequest.value = value;
+  programmingRequest.deadlineMs = millis() + PROGRAMMING_TIMEOUT_MS;
+  programmingModeActive = true;
+  dccParseRaw("<1 PROG>");
+  dccParseRaw(command);
+  sendPowerInfo();
+}
+
 static void sendDirectCommandResponse(const String &response, const char *uuid = nullptr)
 {
   broadcastMessage("dccExDirectCommandResponse", "{\"response\":\"" + escapeJson(response) + "\"}", uuid);
@@ -396,7 +609,7 @@ static void sendCommandCenterInfo(uint32_t clientId = 0)
     broadcastMessage("commandCenterInfo", data);
 }
 
-static void sendPowerInfo(uint32_t clientId = 0)
+static void sendPowerInfo(uint32_t clientId)
 {
   String data = "{";
   data += "\"emergencyStop\":";
@@ -629,12 +842,12 @@ static String makeLocoStateData(int slot)
   return data;
 }
 
-static int getInt(JsonVariantConst value, int fallback = 0)
+static int getInt(JsonVariantConst value, int fallback)
 {
   return value.is<int>() ? value.as<int>() : fallback;
 }
 
-static bool getBool(JsonVariantConst value, bool fallback = false)
+static bool getBool(JsonVariantConst value, bool fallback)
 {
   return value.is<bool>() ? value.as<bool>() : fallback;
 }
@@ -798,6 +1011,202 @@ static void handleLocosCommand(uint32_t clientId, JsonDocument &doc, const char 
   sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Unsupported locos action\"}", uuid);
 }
 
+static bool layoutTypeMatches(const char *actual, const char *expected)
+{
+  if (!strcmp(expected, "turnout")) return !strncmp(actual, "trackturnout", 12);
+  return !strcmp(actual, expected);
+}
+
+static uint8_t countLayoutElementsById(JsonDocument &layout, const char *id, const char *expectedType)
+{
+  if (!id || !id[0]) return 0;
+  uint8_t totalCount = 0;
+  uint8_t matchingTypeCount = 0;
+  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
+    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
+      if (!strcmp(element["id"] | "", id))
+      {
+        ++totalCount;
+        if (layoutTypeMatches(element["type"] | "", expectedType)) ++matchingTypeCount;
+      }
+  return totalCount == 1 && matchingTypeCount == 1 ? 1 : (totalCount ? 2 : 0);
+}
+
+static bool validateSignalLogicLimits(JsonVariantConst document, String &message)
+{
+  JsonDocument layout;
+  const String layoutText = readFileText("layout.json");
+  if (!layoutText.length() || deserializeJson(layout, layoutText) || !layout.is<JsonObject>())
+  {
+    message = "The layout cannot be loaded for integrity validation.";
+    return false;
+  }
+
+  const JsonArrayConst groups = document["groups"].as<JsonArrayConst>();
+  if (groups.size() > 24)
+  {
+    message = "A maximum of 24 signal groups is supported.";
+    return false;
+  }
+
+  for (JsonObjectConst group : groups)
+  {
+    const char *signalId = group["signalId"] | "";
+    if (countLayoutElementsById(layout, signalId, "tracksignal2") != 1)
+    {
+      message = "A signal rule references a missing, duplicate or invalid signal element ID.";
+      return false;
+    }
+
+    const JsonArrayConst rules = group["rules"].as<JsonArrayConst>();
+    if (rules.size() > 6)
+    {
+      message = "A maximum of 6 rules per signal is supported.";
+      return false;
+    }
+
+    for (JsonObjectConst rule : rules)
+    {
+      const JsonArrayConst conditions = rule["conditions"].as<JsonArrayConst>();
+      if (conditions.size() > 6)
+      {
+        message = "A maximum of 6 conditions per rule is supported.";
+        return false;
+      }
+      for (JsonObjectConst condition : conditions)
+      {
+        const char *type = condition["type"] | "turnout";
+        const bool sensor = !strcmp(type, "sensor");
+        const char *elementId = sensor
+          ? (condition["sensorId"] | "")
+          : (condition["turnoutId"] | "");
+        if (countLayoutElementsById(layout, elementId, sensor ? "tracksensor" : "turnout") != 1)
+        {
+          message = sensor
+            ? "A rule references a missing, duplicate or invalid sensor element ID."
+            : "A rule references a missing, duplicate or invalid turnout element ID.";
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+static bool persistSignalLogicDocument(JsonVariantConst document)
+{
+  LittleFS.remove("/signal-rules.tmp");
+  File file = LittleFS.open("/signal-rules.tmp", "w");
+  if (!file) return false;
+  const size_t written = serializeJson(document, file);
+  file.flush();
+  file.close();
+  if (!written)
+  {
+    LittleFS.remove("/signal-rules.tmp");
+    return false;
+  }
+
+  LittleFS.remove("/signal-rules.json.bak");
+  if (LittleFS.exists("/signal-rules.json") &&
+      !LittleFS.rename("/signal-rules.json", "/signal-rules.json.bak"))
+  {
+    LittleFS.remove("/signal-rules.tmp");
+    return false;
+  }
+
+  if (LittleFS.rename("/signal-rules.tmp", "/signal-rules.json")) return true;
+  if (LittleFS.exists("/signal-rules.json.bak"))
+    LittleFS.rename("/signal-rules.json.bak", "/signal-rules.json");
+  LittleFS.remove("/signal-rules.tmp");
+  return false;
+}
+
+static String signalLogicResponseData(const String &requestId, const String &action,
+                                      bool ok, const String &message = "", bool created = false)
+{
+  String document = readFileText("signal-rules.json");
+  if (!document.length()) document = "{\"version\":2,\"enabled\":false,\"groups\":[]}";
+
+  String response = "{\"requestId\":\"" + escapeJson(requestId) +
+    "\",\"action\":\"" + escapeJson(action) +
+    "\",\"ok\":" + String(ok ? "true" : "false");
+  if (message.length()) response += ",\"message\":\"" + escapeJson(message) + "\"";
+  response += ",\"created\":" + String(created ? "true" : "false");
+  response += ",\"document\":" + document;
+  response += ",\"issues\":[]";
+  response += ",\"state\":{\"running\":" + String(DCCExpressLiteSignalLogic::isRunning() ? "true" : "false") +
+    ",\"enabled\":" + String(DCCExpressLiteSignalLogic::isEnabled() ? "true" : "false") + "}";
+  response += "}";
+  return response;
+}
+
+static void handleSignalLogicCommand(uint32_t clientId, JsonDocument &doc, const char *uuid)
+{
+  JsonObject data = doc["data"].as<JsonObject>();
+  const String requestId = data["requestId"] | "";
+  const String action = data["action"] | "";
+
+  if (action == "load" || action == "state")
+  {
+    sendToClient(clientId, "signalLogicResponse",
+      signalLogicResponseData(requestId, action, true), uuid);
+    return;
+  }
+
+  if (action == "save")
+  {
+    JsonVariantConst document = data["document"];
+    String validationMessage;
+    if (!document.is<JsonObjectConst>() || !validateSignalLogicLimits(document, validationMessage))
+    {
+      sendToClient(clientId, "signalLogicResponse",
+        signalLogicResponseData(requestId, action, false,
+          validationMessage.length() ? validationMessage : "Missing signal logic document."), uuid);
+      return;
+    }
+
+    if (!persistSignalLogicDocument(document) || !DCCExpressLiteSignalLogic::reload())
+    {
+      sendToClient(clientId, "signalLogicResponse",
+        signalLogicResponseData(requestId, action, false, "Could not save signal logic rules."), uuid);
+      return;
+    }
+
+    sendToClient(clientId, "signalLogicResponse",
+      signalLogicResponseData(requestId, action, true), uuid);
+    return;
+  }
+
+  if (action == "start" || action == "stop")
+  {
+    JsonDocument rules;
+    const String current = readFileText("signal-rules.json");
+    if (deserializeJson(rules, current) || !rules.is<JsonObject>())
+    {
+      sendToClient(clientId, "signalLogicResponse",
+        signalLogicResponseData(requestId, action, false, "Signal logic rules are invalid."), uuid);
+      return;
+    }
+
+    const bool nextEnabled = action == "start";
+    rules["enabled"] = nextEnabled;
+    if (!persistSignalLogicDocument(rules.as<JsonVariantConst>()) || !DCCExpressLiteSignalLogic::reload())
+    {
+      sendToClient(clientId, "signalLogicResponse",
+        signalLogicResponseData(requestId, action, false, "Could not update signal logic state."), uuid);
+      return;
+    }
+
+    sendToClient(clientId, "signalLogicResponse",
+      signalLogicResponseData(requestId, action, true), uuid);
+    return;
+  }
+
+  sendToClient(clientId, "signalLogicResponse",
+    signalLogicResponseData(requestId, action, false, "Unsupported signal logic action."), uuid);
+}
+
 static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 {
   JsonDocument doc;
@@ -836,6 +1245,7 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     trackPowerOn = getBool(payload["on"]);
     emergencyStopActive = false;
     dccParseRaw(trackPowerOn ? "<1 MAIN>" : "<0>");
+    if (trackPowerOn) DCCExpressLiteSignalLogic::forceEvaluate();
     sendPowerInfo();
     sendCommandCenterInfo();
     return;
@@ -938,6 +1348,7 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 
     dccParseRaw("<a " + String(address) + " " + String(closed ? 1 : 0) + ">");
     turnoutStateCache[address] = closed ? 1 : 0;
+    DCCExpressLiteSignalLogic::notifyTurnout(address, closed);
     broadcastMessage("turnoutChanged", "{\"address\":" + String(address) + ",\"closed\":" + String(closed ? "true" : "false") + "}", uuid);
     return;
   }
@@ -947,10 +1358,7 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     const int address = getInt(payload["address"]);
     const bool active = getBool(payload["active"]);
 
-    dccParseRaw("<a " + String(address) + " " + String(active ? 1 : 0) + ">");
-    if (address >= 1 && address <= MAX_LINEAR_ACCESSORY_ADDRESS)
-      basicAccessoryStateCache[address] = active ? 1 : 0;
-    broadcastMessage("accessoryChanged", "{\"address\":" + String(address) + ",\"active\":" + String(active ? "true" : "false") + "}", uuid);
+    writeBasicAccessoryState(address, active);
     return;
   }
 
@@ -959,6 +1367,7 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     const int address = getInt(payload["address"]);
     const bool on = getBool(payload["on"]);
 
+    DCCExpressLiteSignalLogic::notifySensor(address, on);
     broadcastMessage("sensorChanged", "{\"address\":" + String(address) + ",\"on\":" + String(on ? "true" : "false") + "}", uuid);
     return;
   }
@@ -978,6 +1387,18 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
   if (type == "locosCommand")
   {
     handleLocosCommand(clientId, doc, uuid);
+    return;
+  }
+
+  if (type == "signalLogicCommand")
+  {
+    handleSignalLogicCommand(clientId, doc, uuid);
+    return;
+  }
+
+  if (type == "programmingCommand")
+  {
+    handleProgrammingCommand(clientId, payload, uuid);
     return;
   }
 
@@ -1294,6 +1715,7 @@ void setupHTTPServer()
   Serial.println("LittleFS started!");
   LCD(4, F("HTTP: FS OK"));
   loadLocoConfiguration();
+  DCCExpressLiteSignalLogic::begin(readTurnoutStateForSignalLogic, writeBasicAccessoryState);
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
@@ -1383,6 +1805,7 @@ void setupHTTPServer()
                   LittleFS.remove("/layout.json");
                   const bool renamed = LittleFS.rename("/layout.tmp", "/layout.json");
                   layoutUploadOk = false;
+                  if (renamed) signalLogicReloadPending = true;
                   request->send(renamed ? 200 : 500, "application/json",
                     renamed
                       ? "{\"ok\":true,\"message\":\"Layout saved.\"}"
@@ -1616,6 +2039,11 @@ void setupHTTPServer()
                  [](AsyncWebServerRequest *request)
                  {
                   const bool ok = request->_tempObject && *static_cast<bool *>(request->_tempObject);
+                  if (request->_tempObject)
+                  {
+                    free(request->_tempObject);
+                    request->_tempObject = nullptr;
+                  }
                   request->send(ok ? 200 : 500, "application/json",
                     ok ? "{\"ok\":true}" : "{\"ok\":false,\"message\":\"Upload failed.\"}");
                  },
@@ -1748,14 +2176,25 @@ void loopHTTPServer()
   if (freeHeap < minFreeHeapBytes) minFreeHeapBytes = freeHeap;
 
   processWsInbound();
+  if (signalLogicReloadPending)
+  {
+    signalLogicReloadPending = false;
+    DCCExpressLiteSignalLogic::reload();
+  }
+  DCCExpressLiteSignalLogic::loop();
   flushPendingWsMessages();
   processInitialSnapshots();
 
   String rawLine;
   if (httpCommandStream.popLine(rawLine))
+  {
+    handleProgrammingOutput(rawLine);
     broadcastMessage("rawInfo", "{\"raw\":\"" + escapeJson(rawLine) + "\"}", nullptr, true);
+  }
 
   const unsigned long now = millis();
+  if (programmingRequest.active && static_cast<int32_t>(now - programmingRequest.deadlineMs) >= 0)
+    finishProgrammingRequest(false, "Decoder programming timed out. Check the programming track and decoder connection.");
   if (now - lastWsCleanupAtMs >= 1000)
   {
     lastWsCleanupAtMs = now;

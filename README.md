@@ -35,6 +35,8 @@ The web installer is the only supported installation method. It flashes one veri
 
 After network setup, open `http://dccex.local` or the IP address shown on the EX-CSB1 display.
 
+The complete user guide covers the layout editor, elements, turnouts, routes, signals, automation, decoder programming, backup/restore and diagnostics in the **[DCCExpressLite Wiki](https://github.com/DCCExpress/DCCExpressLite/wiki)**.
+
 The same network setup is available in any 115200-baud serial monitor:
 
 ```text
@@ -49,6 +51,7 @@ The command saves the credentials and restarts the EX-CSB1. Use `<WIFI?>` to che
 - `web-ui/src/` — complete React/TypeScript web application source.
 - `data/` — generated production UI and device data uploaded to LittleFS.
 - `default-data/` — versioned starter layout, locomotive list and matching images.
+- `wiki-docs/` — version-controlled source pages and screenshots published to the project Wiki.
 - `webinstaller/` — ESP Web Tools installer page source.
 - `tools/` — merged-image build and LittleFS staging scripts.
 - `UPSTREAM.md` — integrated DCC-EX version, local hook list and future upgrade procedure.

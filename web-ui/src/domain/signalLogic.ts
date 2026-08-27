@@ -11,14 +11,18 @@ export const SIGNAL_ASPECTS = [
 export type SignalLogicTurnoutConditionDto = {
   id: string;
   type: "turnout";
-  turnoutAddress: number;
+  turnoutId: string;
+  /** Kept only while importing a version 1 address-based document. */
+  turnoutAddress?: number;
   closed: boolean;
 };
 
 export type SignalLogicSensorConditionDto = {
   id: string;
   type: "sensor";
-  sensorAddress: number;
+  sensorId: string;
+  /** Kept only while importing a version 1 address-based document. */
+  sensorAddress?: number;
   active: boolean;
 };
 
@@ -34,13 +38,15 @@ export type SignalLogicRuleDto = {
 
 export type SignalLogicRuleGroupDto = {
   id: string;
-  signalAddress: number;
+  signalId: string;
+  /** Kept only while importing a version 1 address-based document. */
+  signalAddress?: number;
   defaultAspect: SignalAspect;
   rules: SignalLogicRuleDto[];
 };
 
 export type SignalLogicDocumentDto = {
-  version: 1;
+  version: 2;
   enabled: boolean;
   groups: SignalLogicRuleGroupDto[];
 };
@@ -51,15 +57,18 @@ export type SignalLogicRuntimeStateDto = {
 };
 
 export type SignalLogicKnownSignal = {
+  id: string;
   address: number;
   aspect: number;
 };
 
 export type SignalLogicKnownTurnout = {
+  id: string;
   address: number;
 };
 
 export type SignalLogicKnownSensor = {
+  id: string;
   address: number;
 };
 
@@ -87,7 +96,7 @@ export type SignalLogicValidationIssue = {
 };
 
 export const DEFAULT_SIGNAL_LOGIC_DOCUMENT: SignalLogicDocumentDto = {
-  version: 1,
+  version: 2,
   enabled: false,
   groups: [],
 };
@@ -96,8 +105,10 @@ type RawCondition = {
   id?: unknown;
   type?: unknown;
   turnoutAddress?: unknown;
+  turnoutId?: unknown;
   closed?: unknown;
   sensorAddress?: unknown;
+  sensorId?: unknown;
   active?: unknown;
 };
 
@@ -110,6 +121,7 @@ type RawRule = {
 type RawGroup = {
   id?: unknown;
   signalAddress?: unknown;
+  signalId?: unknown;
   defaultAspect?: unknown;
   rules?: unknown;
 };
@@ -163,9 +175,10 @@ function normalizeCondition(
     return {
       id,
       type: "sensor",
-      sensorAddress: Number.isFinite(Number(condition.sensorAddress))
-        ? Number(condition.sensorAddress)
-        : 0,
+      sensorId: typeof condition.sensorId === "string" ? condition.sensorId : "",
+      ...(Number.isFinite(Number(condition.sensorAddress))
+        ? { sensorAddress: Number(condition.sensorAddress) }
+        : {}),
       active: Boolean(condition.active),
     };
   }
@@ -173,9 +186,10 @@ function normalizeCondition(
   return {
     id,
     type: "turnout",
-    turnoutAddress: Number.isFinite(Number(condition.turnoutAddress))
-      ? Number(condition.turnoutAddress)
-      : 0,
+    turnoutId: typeof condition.turnoutId === "string" ? condition.turnoutId : "",
+    ...(Number.isFinite(Number(condition.turnoutAddress))
+      ? { turnoutAddress: Number(condition.turnoutAddress) }
+      : {}),
     closed: Boolean(condition.closed),
   };
 }
@@ -192,7 +206,7 @@ export function normalizeSignalLogicDocument(input: unknown): SignalLogicDocumen
     : Boolean(raw.autostart);
 
   return {
-    version: 1,
+    version: 2,
     enabled,
     groups: groups.map((groupInput, groupIndex) => {
       const group: RawGroup = isRecord(groupInput) ? groupInput : {};
@@ -202,9 +216,10 @@ export function normalizeSignalLogicDocument(input: unknown): SignalLogicDocumen
         id: typeof group.id === "string" && group.id.length > 0
           ? group.id
           : `signal-group-${groupIndex + 1}`,
-        signalAddress: Number.isFinite(Number(group.signalAddress))
-          ? Number(group.signalAddress)
-          : 0,
+        signalId: typeof group.signalId === "string" ? group.signalId : "",
+        ...(Number.isFinite(Number(group.signalAddress))
+          ? { signalAddress: Number(group.signalAddress) }
+          : {}),
         defaultAspect: isSignalAspect(group.defaultAspect)
           ? group.defaultAspect
           : "red",
@@ -239,11 +254,85 @@ export function normalizeSignalLogicDocument(input: unknown): SignalLogicDocumen
 function conditionSignature(condition: SignalLogicConditionDto): string {
   switch (condition.type) {
     case "sensor":
-      return `sensor:${condition.sensorAddress}:${condition.active}`;
+      return `sensor:${condition.sensorId}:${condition.active}`;
     case "turnout":
     default:
-      return `turnout:${condition.turnoutAddress}:${condition.closed}`;
+      return `turnout:${condition.turnoutId}:${condition.closed}`;
   }
+}
+
+export type SignalLogicMigrationResult = {
+  document: SignalLogicDocumentDto;
+  migratedReferences: number;
+  issues: SignalLogicValidationIssue[];
+};
+
+export function migrateSignalLogicReferences(
+  input: SignalLogicDocumentDto,
+  knownSignals: SignalLogicKnownSignal[],
+  knownTurnouts: SignalLogicKnownTurnout[],
+  knownSensors: SignalLogicKnownSensor[]
+): SignalLogicMigrationResult {
+  const document = structuredClone(input);
+  const issues: SignalLogicValidationIssue[] = [];
+  let migratedReferences = 0;
+
+  for (const group of document.groups) {
+    if (!group.signalId && (group.signalAddress ?? 0) > 0) {
+      const matches = knownSignals.filter(signal => signal.address === group.signalAddress);
+      if (matches.length === 1) {
+        group.signalId = matches[0]!.id;
+        delete group.signalAddress;
+        migratedReferences++;
+      } else {
+        issues.push({
+          level: "error",
+          groupId: group.id,
+          message: matches.length === 0
+            ? `Legacy signal #${group.signalAddress} cannot be found on the layout.`
+            : `Legacy signal #${group.signalAddress} is ambiguous because multiple layout elements use that address.`,
+        });
+      }
+    }
+
+    for (const rule of group.rules) {
+      for (const condition of rule.conditions) {
+        if (condition.type === "turnout" && !condition.turnoutId && (condition.turnoutAddress ?? 0) > 0) {
+          const matches = knownTurnouts.filter(turnout => turnout.address === condition.turnoutAddress);
+          if (matches.length === 1) {
+            condition.turnoutId = matches[0]!.id;
+            delete condition.turnoutAddress;
+            migratedReferences++;
+          } else {
+            issues.push({
+              level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id,
+              message: matches.length === 0
+                ? `Legacy turnout #${condition.turnoutAddress} cannot be found on the layout.`
+                : `Legacy turnout #${condition.turnoutAddress} is ambiguous because multiple layout elements use that address.`,
+            });
+          }
+        }
+
+        if (condition.type === "sensor" && !condition.sensorId && (condition.sensorAddress ?? 0) > 0) {
+          const matches = knownSensors.filter(sensor => sensor.address === condition.sensorAddress);
+          if (matches.length === 1) {
+            condition.sensorId = matches[0]!.id;
+            delete condition.sensorAddress;
+            migratedReferences++;
+          } else {
+            issues.push({
+              level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id,
+              message: matches.length === 0
+                ? `Legacy sensor #${condition.sensorAddress} cannot be found on the layout.`
+                : `Legacy sensor #${condition.sensorAddress} is ambiguous because multiple layout elements use that address.`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return { document, migratedReferences, issues };
 }
 
 export function validateSignalLogicDocument(
@@ -253,43 +342,48 @@ export function validateSignalLogicDocument(
   knownSensors: SignalLogicKnownSensor[] = []
 ): SignalLogicValidationIssue[] {
   const issues: SignalLogicValidationIssue[] = [];
-  const knownSignalByAddress = new Map(
-    knownSignals.map(signal => [signal.address, signal])
-  );
-  const knownTurnoutAddresses = new Set(
-    knownTurnouts.map(turnout => turnout.address)
-  );
-  const knownSensorAddresses = new Set(
-    knownSensors.map(sensor => sensor.address)
-  );
-  const usedSignalAddresses = new Set<number>();
+  const knownSignalById = new Map(knownSignals.map(signal => [signal.id, signal]));
+  const knownTurnoutById = new Map(knownTurnouts.map(turnout => [turnout.id, turnout]));
+  const knownSensorById = new Map(knownSensors.map(sensor => [sensor.id, sensor]));
+  const usedSignalIds = new Set<string>();
+
+  const reportDuplicateIds = (items: Array<{ id: string }>, kind: string) => {
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.id)) issues.push({ level: "error", message: `Duplicate ${kind} element ID: ${item.id}` });
+      seen.add(item.id);
+    }
+  };
+  reportDuplicateIds(knownSignals, "signal");
+  reportDuplicateIds(knownTurnouts, "turnout");
+  reportDuplicateIds(knownSensors, "sensor");
 
   for (const group of document.groups) {
-    if (group.signalAddress <= 0) {
-      issues.push({ level: "error", groupId: group.id, message: "Signal address must be greater than zero." });
+    if (!group.signalId) {
+      issues.push({ level: "error", groupId: group.id, message: "Signal rule group has no valid signal element ID." });
     }
 
-    if (usedSignalAddresses.has(group.signalAddress)) {
-      issues.push({ level: "warning", groupId: group.id, message: `Signal #${group.signalAddress} has more than one rule group.` });
+    if (group.signalId && usedSignalIds.has(group.signalId)) {
+      issues.push({ level: "warning", groupId: group.id, message: "The same signal element has more than one rule group." });
     }
 
-    usedSignalAddresses.add(group.signalAddress);
-    const knownSignal = knownSignalByAddress.get(group.signalAddress);
+    usedSignalIds.add(group.signalId);
+    const knownSignal = knownSignalById.get(group.signalId);
 
     if (knownSignals.length > 0 && !knownSignal) {
-      issues.push({ level: "error", groupId: group.id, message: `Signal #${group.signalAddress} does not exist on the layout.` });
+      issues.push({ level: "error", groupId: group.id, message: `Referenced signal element was deleted or has the wrong type (${group.signalId || "missing ID"}).` });
     }
 
     if (knownSignal) {
       const allowedAspects = getAllowedSignalAspects(knownSignal.aspect);
 
       if (!allowedAspects.includes(group.defaultAspect)) {
-        issues.push({ level: "error", groupId: group.id, message: `Signal #${group.signalAddress} cannot use default aspect ${group.defaultAspect}.` });
+        issues.push({ level: "error", groupId: group.id, message: `Signal #${knownSignal.address} cannot use default aspect ${group.defaultAspect}.` });
       }
     }
 
     if (group.rules.length === 0) {
-      issues.push({ level: "warning", groupId: group.id, message: `Signal #${group.signalAddress} has no rules and will always use the default aspect.` });
+      issues.push({ level: "warning", groupId: group.id, message: `Signal #${knownSignal?.address ?? "?"} has no rules and will always use the default aspect.` });
     }
 
     const ruleSignatures = new Set<string>();
@@ -313,7 +407,7 @@ export function validateSignalLogicDocument(
         const allowedAspects = getAllowedSignalAspects(knownSignal.aspect);
 
         if (!allowedAspects.includes(rule.aspect)) {
-          issues.push({ level: "error", groupId: group.id, ruleId: rule.id, message: `Signal #${group.signalAddress} cannot use rule aspect ${rule.aspect}.` });
+          issues.push({ level: "error", groupId: group.id, ruleId: rule.id, message: `Signal #${knownSignal.address} cannot use rule aspect ${rule.aspect}.` });
         }
       }
 
@@ -331,7 +425,7 @@ export function validateSignalLogicDocument(
       const conditionKeys = new Set<string>();
 
       for (const condition of rule.conditions) {
-        const key = `${condition.type}:${condition.type === "sensor" ? condition.sensorAddress : condition.turnoutAddress}`;
+        const key = `${condition.type}:${condition.type === "sensor" ? condition.sensorId : condition.turnoutId}`;
 
         if (conditionKeys.has(key)) {
           issues.push({ level: "warning", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: "The same input is used more than once in the same rule." });
@@ -340,23 +434,23 @@ export function validateSignalLogicDocument(
         conditionKeys.add(key);
 
         if (condition.type === "sensor") {
-          if (condition.sensorAddress <= 0) {
-            issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: "Sensor condition must reference a sensor address greater than zero." });
+          if (!condition.sensorId) {
+            issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: "Sensor condition has no valid sensor element ID." });
           }
 
-          if (knownSensorAddresses.size > 0 && !knownSensorAddresses.has(condition.sensorAddress)) {
-            issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: `Sensor #${condition.sensorAddress} does not exist on the layout.` });
+          if (knownSensors.length > 0 && !knownSensorById.has(condition.sensorId)) {
+            issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: `Referenced sensor was deleted or has the wrong type (${condition.sensorId || "missing ID"}).` });
           }
 
           continue;
         }
 
-        if (condition.turnoutAddress <= 0) {
-          issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: "Turnout condition must reference a turnout address greater than zero." });
+        if (!condition.turnoutId) {
+          issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: "Turnout condition has no valid turnout element ID." });
         }
 
-        if (knownTurnoutAddresses.size > 0 && !knownTurnoutAddresses.has(condition.turnoutAddress)) {
-          issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: `Turnout #${condition.turnoutAddress} does not exist on the layout.` });
+        if (knownTurnouts.length > 0 && !knownTurnoutById.has(condition.turnoutId)) {
+          issues.push({ level: "error", groupId: group.id, ruleId: rule.id, conditionId: condition.id, message: `Referenced turnout was deleted or has the wrong type (${condition.turnoutId || "missing ID"}).` });
         }
       }
     }

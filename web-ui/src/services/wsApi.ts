@@ -7,6 +7,9 @@ import type {
   Direction,
   LevelCrossingCommandAction,
   LevelCrossingLogicDocumentDto,
+  ProgrammingCommandAction,
+  ProgrammingCommandPayload,
+  ProgrammingResponsePayload,
   ReservationOwnerType,
   RuntimeVariableKey,
   RuntimeVariableValue,
@@ -227,6 +230,29 @@ class WebSocketApi {
 
   setBasicAccessory(address: number, active: boolean): boolean {
     return this.send("setBasicAccessory", { address, active });
+  }
+
+  programmingCommand(
+    requestId: string,
+    action: ProgrammingCommandAction,
+    values: Omit<ProgrammingCommandPayload, "requestId" | "action"> = {}
+  ): boolean {
+    return this.send("programmingCommand", { requestId, action, ...values });
+  }
+
+  programmingRequest(
+    requestId: string,
+    action: ProgrammingCommandAction,
+    values: Omit<ProgrammingCommandPayload, "requestId" | "action"> = {},
+    timeoutMs = 25000
+  ): Promise<ProgrammingResponsePayload> {
+    return this.request(
+      "programmingCommand",
+      { requestId, action, ...values },
+      "programmingResponse",
+      response => response.requestId === requestId,
+      timeoutMs
+    );
   }
 
   setBlock(blockId: string, locoId: string | null): boolean {

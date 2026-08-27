@@ -16,16 +16,20 @@ import {
 } from "@mantine/core";
 import {
   IconArrowLeft,
+  IconAlertTriangle,
   IconChevronLeft,
   IconChevronRight,
   IconDeviceFloppy,
   IconEdit,
   IconFocusCentered,
+  IconHelpCircle,
   IconPlus,
   IconPointer,
   IconPower,
   IconRefresh,
   IconSettings,
+  IconShieldCheck,
+  IconTrafficLights,
   IconTrain,
   IconTrash,
 } from "@tabler/icons-react";
@@ -36,6 +40,8 @@ import type { DccExStatusPayload, Loco } from "@domain/types";
 import { ELEMENT_TYPES, type ElementType } from "@domain/layout/elementTypes";
 import TrackCanvas from "@/components/TrackCanvas";
 import FullscreenLoader from "@/components/FullscreenLoader";
+import SignalLogicDialog from "@/components/SignalLogicDialog";
+import IntegrityCheckDialog from "@/components/IntegrityCheckDialog";
 import VisibilitySettings from "@/components/VisibilitySettings";
 import { useCommandCenter } from "@/context/CommandCenterContext";
 import { useLayoutPageShortcuts } from "@/hooks/layout/useLayoutPageShortcuts";
@@ -279,6 +285,18 @@ function InfoRow({ label, value, color = "blue" }: { label: string; value: strin
   );
 }
 
+type TemperatureLevel = {
+  label: "NORMAL" | "WARM" | "WARNING" | "CRITICAL";
+  color: "green" | "yellow" | "orange" | "red";
+};
+
+function getTemperatureLevel(temperatureC: number): TemperatureLevel {
+  if (temperatureC > 85) return { label: "CRITICAL", color: "red" };
+  if (temperatureC >= 75) return { label: "WARNING", color: "orange" };
+  if (temperatureC >= 65) return { label: "WARM", color: "yellow" };
+  return { label: "NORMAL", color: "green" };
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   return `${Math.round(bytes / 1024)} KB`;
@@ -300,6 +318,8 @@ function DccExInfoPanel({
   const firmwarePercent = flashInfo?.firmwareBytes && flashInfo.firmwarePartitionBytes
     ? Math.round((flashInfo.firmwareBytes / flashInfo.firmwarePartitionBytes) * 100)
     : 0;
+  const temperature = status?.chipTemperatureC;
+  const temperatureLevel = temperature !== undefined ? getTemperatureLevel(temperature) : null;
 
   return (
     <ScrollArea h="100%" type="always" scrollbarSize={9} className="lite-info-scroll">
@@ -319,7 +339,11 @@ function DccExInfoPanel({
             <InfoRow label="Processor" value={status?.cpuCores ? `${status.cpuCores} cores · ${status.cpuFrequencyMhz ?? 240} MHz` : "—"} color="violet" />
             <InfoRow label="Core 0 · Wi-Fi / web" value={status?.cpuCore0Percent !== undefined ? `${status.cpuCore0Percent}%` : "—"} color={(status?.cpuCore0Percent ?? 0) >= 85 ? "red" : "cyan"} />
             <InfoRow label="Core 1 · DCC-EX activity" value={status?.cpuCore1Percent !== undefined ? `${status.cpuCore1Percent}%` : "—"} color="teal" />
-            <InfoRow label="Chip temperature" value={status?.chipTemperatureC !== undefined ? `${status.chipTemperatureC.toFixed(1)} °C` : "—"} color={(status?.chipTemperatureC ?? 0) >= 75 ? "red" : "orange"} />
+            <InfoRow
+              label="Chip temperature"
+              value={temperature !== undefined && temperatureLevel ? `${temperature.toFixed(1)} °C · ${temperatureLevel.label}` : "—"}
+              color={temperatureLevel?.color ?? "gray"}
+            />
             <InfoRow label="WebSocket clients" value={status?.wsClients !== undefined ? String(status.wsClients) : "—"} color="cyan" />
             <InfoRow label="WS command queue" value={status?.wsCommandQueueLength !== undefined ? String(status.wsCommandQueueLength) : "—"} color={(status?.wsCommandQueueLength ?? 0) >= 6 ? "red" : "teal"} />
             <InfoRow label="Dropped WS commands" value={status?.droppedWsCommands !== undefined ? String(status.droppedWsCommands) : "—"} color={(status?.droppedWsCommands ?? 0) > 0 ? "red" : "green"} />
@@ -449,6 +473,9 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
   const [canvasBusy, setCanvasBusy] = useState(false);
   const [canvasBusyText, setCanvasBusyText] = useState("Loading...");
   const [pickerOpened, setPickerOpened] = useState(false);
+  const [signalLogicOpened, setSignalLogicOpened] = useState(false);
+  const [integrityCheckOpened, setIntegrityCheckOpened] = useState(false);
+  const [temperatureAlertOpened, setTemperatureAlertOpened] = useState(false);
   const [invalidateCounter, setInvalidateCounter] = useState(0);
   const [fitCounter, setFitCounter] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -466,6 +493,7 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
   const [propertyPanelCollapsed, setPropertyPanelCollapsed] = useState(() => readStoredBoolean(PROPERTY_COLLAPSED_KEY));
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>(readStoredRightPanelMode);
   const resizeRef = useRef<{ side: "left" | "right"; startX: number; startWidth: number } | null>(null);
+  const temperatureCriticalRef = useRef(false);
 
   const invalidate = useCallback(() => setInvalidateCounter(value => value + 1), []);
 
@@ -524,6 +552,20 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
   useEffect(() => wsClient.subscribeStatus(setWsStatus), []);
 
   useEffect(() => wsClient.on("dccExStatus", setDccExStatus), []);
+
+  useEffect(() => {
+    const temperature = dccExStatus?.chipTemperatureC;
+    if (temperature === undefined) return;
+
+    if (temperature > 85 && !temperatureCriticalRef.current) {
+      temperatureCriticalRef.current = true;
+      setTemperatureAlertOpened(true);
+    } else if (temperature < 80) {
+      // Hysteresis: closing the warning while the temperature still hovers
+      // around the threshold must not open it again on every telemetry frame.
+      temperatureCriticalRef.current = false;
+    }
+  }, [dccExStatus?.chipTemperatureC]);
 
   useEffect(() => {
     void fetch("/fsinfo", { cache: "no-store" })
@@ -757,6 +799,25 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
           <Button size="xs" variant="light" color="violet" leftSection={<IconTrain size={16} />} onClick={onOpenLocoEditor} title="Edit locomotives">
             LOCOS
           </Button>
+          <Button size="xs" variant="light" color="yellow" leftSection={<IconTrafficLights size={16} />} onClick={() => setSignalLogicOpened(true)} title="Automatic signal aspects">
+            SIGNALS
+          </Button>
+          <Button size="xs" variant="light" color="teal" leftSection={<IconShieldCheck size={16} />} onClick={() => setIntegrityCheckOpened(true)} title="Check all project references">
+            CHECK
+          </Button>
+          <Button
+            component="a"
+            href="https://github.com/DCCExpress/DCCExpressLite/wiki"
+            target="_blank"
+            rel="noopener noreferrer"
+            size="xs"
+            variant="light"
+            color="blue"
+            leftSection={<IconHelpCircle size={16} />}
+            title="Open the online DCCExpressLite documentation"
+          >
+            HELP
+          </Button>
           <ActionIcon variant={locoPanelCollapsed ? "light" : "filled"} onClick={() => setLocoPanelCollapsed(value => !value)} title="Toggle locomotive panel">
             <IconTrain size={19} />
           </ActionIcon>
@@ -902,7 +963,12 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
         <ScrollArea.Autosize mah="70dvh">
           <SimpleGrid cols={{ base: 2, sm: 4 }}>
             {PICKER_ITEMS.map(item => (
-              <Card key={item.type} withBorder p="xs">
+              <Card
+                key={item.type}
+                withBorder
+                p="xs"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
                 <ElementPreview
                   element={item.preview}
                   label={item.label}
@@ -918,6 +984,38 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
           </SimpleGrid>
         </ScrollArea.Autosize>
       </Modal>
+
+      <Modal
+        opened={temperatureAlertOpened}
+        onClose={() => setTemperatureAlertOpened(false)}
+        title="Critical ESP32 temperature"
+        size="sm"
+        centered
+      >
+        <Stack>
+          <Alert color="red" icon={<IconAlertTriangle size={20} />} title="EX-CSB1 temperature is critical">
+            The ESP32 reports {dccExStatus?.chipTemperatureC?.toFixed(1) ?? "—"} °C. Check enclosure ventilation,
+            nearby heat sources and sustained processor/network load.
+          </Alert>
+          <Text size="sm" c="dimmed">
+            This is the internal silicon temperature of the ESP32, not the room temperature and not a separate reading for each CPU core.
+          </Text>
+          <Button color="red" onClick={() => setTemperatureAlertOpened(false)}>Acknowledge</Button>
+        </Stack>
+      </Modal>
+
+      <SignalLogicDialog
+        opened={signalLogicOpened}
+        onClose={() => setSignalLogicOpened(false)}
+        layout={layout}
+      />
+
+      <IntegrityCheckDialog
+        opened={integrityCheckOpened}
+        onClose={() => setIntegrityCheckOpened(false)}
+        layout={layout}
+        locos={locos}
+      />
 
       <FullscreenLoader visible={canvasBusy} text={canvasBusyText} />
     </Stack>

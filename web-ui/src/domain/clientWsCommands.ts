@@ -178,6 +178,23 @@ export type SignalLogicCommandPayload = {
   signalAddresses?: number[];
 };
 
+export type ProgrammingCommandAction =
+  | "readAddress"
+  | "writeAddress"
+  | "readCv"
+  | "writeCv"
+  | "pomWriteCv"
+  | "accessoryLearn";
+
+export type ProgrammingCommandPayload = {
+  requestId: string;
+  action: ProgrammingCommandAction;
+  address?: number;
+  cv?: number;
+  value?: number;
+  active?: boolean;
+};
+
 export type AutomationCommandAction =
   | "snapshot"
   | "start"
@@ -289,6 +306,7 @@ export type ClientWsPayloadMap = {
   commandCenterConfigCommand: CommandCenterConfigCommandPayload;
   appSettingsCommand: AppSettingsCommandPayload;
   signalLogicCommand: SignalLogicCommandPayload;
+  programmingCommand: ProgrammingCommandPayload;
   blockAutomationCommand: BlockAutomationCommandPayload;
   levelCrossingCommand: LevelCrossingCommandPayload;
   automationCommand: AutomationCommandPayload;

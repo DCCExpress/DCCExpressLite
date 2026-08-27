@@ -34,6 +34,7 @@ import {
   IconRefresh,
   IconRouter,
   IconSettings,
+  IconTool,
   IconTrash,
   IconTrain,
   IconUpload,
@@ -42,14 +43,16 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { Loco } from "@domain/types";
+import type { Loco, SignalLogicDocumentDto } from "@domain/types";
 
 import { getLocos } from "@/api/domainApi";
 import { exportLocoImages, importLocoImages, type LocoImageBackup } from "@/api/imageApi";
+import { loadSignalLogicRulesWs, saveSignalLogicRulesWs } from "@/api/signalLogicWsApi";
 import LocoDialog from "@/components/LocoDialog";
 import LocoPanel from "@/layout/LocoPanel";
 import LiteLayoutPage from "./LiteLayoutPage";
 import RuntimeLayoutOverlay from "./RuntimeLayoutOverlay";
+import ProgrammingPage from "./ProgrammingPage";
 import { getDefaultWsUrl } from "@/services/defaultWsUrl";
 import { wsApi } from "@/services/wsApi";
 import {
@@ -58,7 +61,7 @@ import {
 } from "@/services/wsClient";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-type Page = "home" | "drive" | "layout" | "settings" | "files" | "backup";
+type Page = "home" | "drive" | "layout" | "programming" | "settings" | "files" | "backup";
 
 type NetworkSettingsDto = {
   configured: boolean;
@@ -102,7 +105,7 @@ function formatStatus(status: WsConnectionStatus): string {
 
 function pageFromHash(): Page {
   const page = window.location.hash.replace("#", "");
-  return page === "drive" || page === "layout" || page === "settings" || page === "files" || page === "backup" ? page : "home";
+  return page === "drive" || page === "layout" || page === "programming" || page === "settings" || page === "files" || page === "backup" ? page : "home";
 }
 
 function AppHeader({ status, version }: { status: WsConnectionStatus; version: string }) {
@@ -199,6 +202,16 @@ function HomePage({
           <Title order={4} mt="md">Locomotive editor</Title>
           <Text size="sm" c="dimmed" mt={4}>
             Add locomotives and configure addresses, images and functions
+          </Text>
+        </Card>
+
+        <Card className="action-card" withBorder radius={5} p="lg" onClick={() => onNavigate("programming")}>
+          <ThemeIcon size={48} radius="lg" color="orange" variant="light">
+            <IconTool size={27} />
+          </ThemeIcon>
+          <Title order={4} mt="md">Decoder programming</Title>
+          <Text size="sm" c="dimmed" mt={4}>
+            Program locomotive, accessory and DigiTools decoders
           </Text>
         </Card>
 
@@ -475,6 +488,7 @@ type LiteBackup = {
   layout?: unknown;
   locos?: Loco[];
   images?: LocoImageBackup[];
+  signalLogic?: SignalLogicDocumentDto;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -531,6 +545,15 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
             warnings.push(`images: ${errorMessage(error)}`);
           }
         })(),
+        (async () => {
+          try {
+            const signalLogic = await loadSignalLogicRulesWs();
+            backup.signalLogic = signalLogic.document;
+            exported.push("signal logic");
+          } catch (error) {
+            warnings.push(`signal logic: ${errorMessage(error)}`);
+          }
+        })(),
       ]);
 
       if (exported.length === 0) throw new Error(`No backup data could be read. ${warnings.join("; ")}`);
@@ -567,8 +590,11 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
       const hasLayout = Object.prototype.hasOwnProperty.call(parsed, "layout") && parsed.layout !== null;
       const locos = Array.isArray(parsed.locos) ? parsed.locos as Loco[] : null;
       const images = Array.isArray(parsed.images) ? parsed.images as LocoImageBackup[] : null;
-      if (!hasLayout && locos === null && images === null) {
-        throw new Error("The file contains no layout, locomotive or image data that this release understands.");
+      const signalLogic = isRecord(parsed.signalLogic) && Array.isArray(parsed.signalLogic.groups)
+        ? parsed.signalLogic as SignalLogicDocumentDto
+        : null;
+      if (!hasLayout && locos === null && images === null && signalLogic === null) {
+        throw new Error("The file contains no layout, locomotive, image or signal logic data that this release understands.");
       }
 
       const imported: string[] = [];
@@ -603,6 +629,15 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
         }
       }
 
+      if (signalLogic !== null) {
+        try {
+          await saveSignalLogicRulesWs(signalLogic);
+          imported.push("signal logic");
+        } catch (error) {
+          warnings.push(`signal logic: ${errorMessage(error)}`);
+        }
+      }
+
       if (imported.length === 0) throw new Error(`No data could be restored. ${warnings.join("; ")}`);
       if (locos !== null) await onDataImported();
       showNotification({
@@ -627,9 +662,9 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
       <Card withBorder radius={5} p="lg">
         <Stack gap="md">
           <div>
-            <Title order={4}>Layout, locomotives and images</Title>
+            <Title order={4}>Layout, locomotives, images and signal logic</Title>
             <Text size="sm" c="dimmed" mt={4}>
-              Export the complete layout, locomotive list and all locomotive images into one JSON file, or restore them from an earlier backup.
+              Export the complete layout, locomotive list, locomotive images and signal automation rules into one JSON file, or restore them from an earlier backup.
             </Text>
           </div>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -935,6 +970,8 @@ export default function App() {
     if (page === "files") return <FilesPage onBack={() => navigate("home")} />;
 
     if (page === "backup") return <BackupPage onBack={() => navigate("home")} onDataImported={loadLocos} />;
+
+    if (page === "programming") return <ProgrammingPage onBack={() => navigate("home")} status={status} />;
 
     if (page === "layout") return <LiteLayoutPage version={version} locos={locos} onBack={() => navigate("home")} onOpenLocoEditor={() => setLocoEditorOpened(true)} />;
 
