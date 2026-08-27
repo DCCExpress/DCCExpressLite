@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
-const device = "http://192.168.1.143";
+const device = process.env.DCCEXPRESS_DEVICE_URL?.trim() || "http://dccex.local";
 
 export default defineConfig({
   base: "/",

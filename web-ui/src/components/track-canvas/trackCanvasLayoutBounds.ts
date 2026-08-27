@@ -117,3 +117,24 @@ export function fitLayoutToView(
   view.offsetY =
     (canvasHeight - worldHeight * newScale) / 2 - worldTop * newScale;
 }
+
+export function centerLayoutInView(
+  layout: LayoutView,
+  view: ViewState,
+  canvasWidth: number,
+  canvasHeight: number
+): void {
+  const bounds = getLayoutBounds(layout);
+  if (!bounds) return;
+
+  const gridSize = layout.gridSize;
+  const worldLeft = bounds.minX * gridSize;
+  const worldTop = bounds.minY * gridSize;
+  const worldRight = (bounds.maxX + 1) * gridSize;
+  const worldBottom = (bounds.maxY + 1) * gridSize;
+  const worldCenterX = (worldLeft + worldRight) / 2;
+  const worldCenterY = (worldTop + worldBottom) / 2;
+
+  view.offsetX = canvasWidth / 2 - worldCenterX * view.scale;
+  view.offsetY = canvasHeight / 2 - worldCenterY * view.scale;
+}

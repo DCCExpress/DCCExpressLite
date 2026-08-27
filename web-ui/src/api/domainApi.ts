@@ -1,10 +1,16 @@
 import type { Loco } from "@domain/types";
-import { getLocosWs, saveLocosWs } from "./locosWsApi";
 
-export function getLocos(): Promise<Loco[]> {
-  return getLocosWs();
+export async function getLocos(): Promise<Loco[]> {
+  const response = await fetch("/api/locos", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not load locomotives: HTTP ${response.status}`);
+  return response.json() as Promise<Loco[]>;
 }
 
 export async function saveLocos(locos: Loco[]): Promise<void> {
-  await saveLocosWs(locos);
+  const response = await fetch("/api/locos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(locos),
+  });
+  if (!response.ok) throw new Error(`Could not save locomotives: HTTP ${response.status}`);
 }

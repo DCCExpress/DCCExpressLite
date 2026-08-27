@@ -121,26 +121,18 @@ pio run -e ESP32
 pio run -e ESP32 -t buildfs
 ```
 
-## Merged firmware and installer artifacts
+## Merged firmware and web installer artifacts
 
 Generate the 4 MB image used by ESP Web Tools:
 
 ```powershell
-./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.1
-```
-
-Generate every desktop-installer/release artifact:
-
-```powershell
-./tools/New-FirmwareManifest.ps1 `
-  -Version 0.1.0-alpha.1 `
-  -BaseUrl https://github.com/DCCExpress/DCCExpressLite/releases/download/v0.1.0-alpha.1
+./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.2
 ```
 
 Outputs:
 
 ```text
-artifacts/firmware/     Release binaries and firmware-manifest.json
+artifacts/firmware/     The single DCCExpressLite-<version>-merged.bin release asset
 artifacts/webinstaller/ GitHub Pages installer, manifest and merged-firmware.bin
 ```
 
@@ -167,11 +159,11 @@ git status
 git add --all
 git commit -m "Prepare DCCExpressLite alpha release"
 git push origin main
-git tag v0.1.0-alpha.1
-git push origin v0.1.0-alpha.1
+git tag v0.1.0-alpha.2
+git push origin v0.1.0-alpha.2
 ```
 
-The tag starts `.github/workflows/release-lite.yml`, which builds the UI from source, creates the firmware assets and merged image, creates the GitHub prerelease, and updates the GitHub Pages web installer.
+The tag starts `.github/workflows/release-lite.yml`, which builds the UI from source, publishes only the merged image, creates the GitHub prerelease, and updates the GitHub Pages web installer.
 
 ## Verification checklist
 

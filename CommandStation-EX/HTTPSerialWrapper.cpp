@@ -1,22 +1,42 @@
 #include "HTTPSerialWrapper.h"
 
-HTTPSerialWrapper::HTTPSerialWrapper(Stream* baseStream, AsyncWebSocket* ws)
-  : _base(baseStream), _ws(ws), _buffer("") {}
+HTTPSerialWrapper::HTTPSerialWrapper(Stream* baseStream)
+  : _base(baseStream), _buffer("")
+{
+  _buffer.reserve(MAX_LINE_LENGTH);
+}
 
 size_t HTTPSerialWrapper::write(uint8_t b) {
   _base->write(b);
   if (b == '\n') {
-    if (_ws) {
-      //_ws->textAll(_buffer);
-      String json = "{\"type\":\"rawInfo\",\"data\":{\"raw\":\"" + escapeJson(_buffer) + "\"}}";
-      _ws->textAll(json);
-
-    }
-    _buffer = "";
+    finishLine();
   } else {
-    _buffer += (char)b;
+    if (_buffer.length() < MAX_LINE_LENGTH)
+      _buffer += (char)b;
   }
   return 1;
+}
+
+void HTTPSerialWrapper::finishLine() {
+  if (!_buffer.length()) return;
+  if (_lineCount >= LINE_QUEUE_SIZE) {
+    ++_droppedLines;
+    _buffer = "";
+    return;
+  }
+  _lines[_lineTail] = _buffer;
+  _lineTail = (_lineTail + 1) % LINE_QUEUE_SIZE;
+  ++_lineCount;
+  _buffer = "";
+}
+
+bool HTTPSerialWrapper::popLine(String &line) {
+  if (!_lineCount) return false;
+  line = _lines[_lineHead];
+  _lines[_lineHead] = "";
+  _lineHead = (_lineHead + 1) % LINE_QUEUE_SIZE;
+  --_lineCount;
+  return true;
 }
 
 size_t HTTPSerialWrapper::write(const uint8_t *buffer, size_t size) {
@@ -51,18 +71,4 @@ void HTTPSerialWrapper::begin(unsigned long baud) {
 
 HTTPSerialWrapper::operator bool() const {
   return _base != nullptr;
-}
-
-String HTTPSerialWrapper::escapeJson(const String& input) {
-  String output = "";
-  for (unsigned int i = 0; i < input.length(); ++i) {
-    char c = input.charAt(i);
-    if (c == '\\') output += "\\\\";
-    else if (c == '\"') output += "\\\"";
-    else if (c == '\n') output += "\\n";
-    else if (c == '\r') output += "\\r";
-    else if (c == '\t') output += "\\t";
-    else output += c;
-  }
-  return output;
 }

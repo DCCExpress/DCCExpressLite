@@ -17,9 +17,7 @@ For most users the quickest route is the **[DCCExpressLite Web Installer](https:
 5. Keep the USB cable connected until flashing finishes.
 6. After installation, enter the home SSID and password on the same installer page and send them over the selected serial port.
 
-The web installer flashes one verified merged image containing the bootloader, partition table, firmware, embedded web application, starter layout, four locomotives and their images. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
-
-Windows users can alternatively download the graphical **[DCCExpressLiteInstaller](https://github.com/DCCExpress/DCCExpressLiteInstaller/releases)**. Manual binaries are available under this repository's [releases](https://github.com/DCCExpress/DCCExpressLite/releases).
+The web installer is the only supported installation method. It flashes one verified merged image containing the bootloader, partition table, firmware, embedded web application, starter layout, four locomotives and their images. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
 
 ## Features
 
@@ -35,7 +33,7 @@ Windows users can alternatively download the graphical **[DCCExpressLiteInstalle
 - Layout, locomotive and locomotive-image import/export.
 - Automatic WebSocket reconnect and refresh-safe static file delivery.
 
-After network setup, open the IP address shown on the EX-CSB1 display. The factory setup address is usually `http://192.168.4.1`.
+After network setup, open `http://dccex.local` or the IP address shown on the EX-CSB1 display.
 
 The same network setup is available in any 115200-baud serial monitor:
 
@@ -52,7 +50,7 @@ The command saves the credentials and restarts the EX-CSB1. Use `<WIFI?>` to che
 - `data/` — generated production UI and device data uploaded to LittleFS.
 - `default-data/` — versioned starter layout, locomotive list and matching images.
 - `webinstaller/` — ESP Web Tools installer page source.
-- `tools/` — merged-image and release-manifest build scripts.
+- `tools/` — merged-image build and LittleFS staging scripts.
 - `UPSTREAM.md` — integrated DCC-EX version, local hook list and future upgrade procedure.
 - `.github/workflows/` — CI, release and GitHub Pages deployment.
 
@@ -71,13 +69,7 @@ pio run -e ESP32 -t buildfs
 
 ## Releases
 
-Version tags automatically build and publish:
-
-- individual ESP32 flash images;
-- a 4 MB merged firmware image;
-- `firmware-manifest.json` for the desktop installer;
-- optional starter data;
-- the HTTPS web installer on GitHub Pages.
+Version tags automatically build and publish exactly one firmware asset: the 4 MB merged image used by the HTTPS web installer on GitHub Pages. Separate Windows, Linux, macOS and individual ESP32 firmware downloads are not produced.
 
 On a clean checkout, PlatformIO stages the files from `default-data/` into LittleFS automatically. Existing developer/device data files are left untouched.
 

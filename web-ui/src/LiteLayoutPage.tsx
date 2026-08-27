@@ -19,7 +19,6 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconDeviceFloppy,
-  IconDownload,
   IconEdit,
   IconFocusCentered,
   IconPlus,
@@ -29,7 +28,6 @@ import {
   IconSettings,
   IconTrain,
   IconTrash,
-  IconUpload,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { showNotification } from "@mantine/notifications";
@@ -67,7 +65,6 @@ import ElementPreview from "@/models/editor/rendering/ElementPreviewRenderer";
 import type { EditorTool } from "@/models/editor/types/EditorTypes";
 import { wsApi } from "@/services/wsApi";
 import { wsClient, type WsConnectionStatus } from "@/services/wsClient";
-import { exportLocoImages, importLocoImages, type LocoImageBackup } from "@/api/imageApi";
 import "@/styles/propertypanel.css";
 
 type LiteLayoutPageProps = {
@@ -75,7 +72,6 @@ type LiteLayoutPageProps = {
   locos: Loco[];
   onBack: () => void;
   onOpenLocoEditor: () => void;
-  onDataImported: () => Promise<void>;
 };
 
 type FlashInfo = {
@@ -115,15 +111,6 @@ type HardwareDevicesSnapshot = {
   scannedAtMs: number;
   configuredDevices: ConfiguredHardwareDevice[];
   i2cDevices: DetectedI2cDevice[];
-};
-
-type LiteBackup = {
-  format: "dcc-express-lite-backup";
-  version: 1 | 2;
-  exportedAt: string;
-  layout: unknown;
-  locos: Loco[];
-  images?: LocoImageBackup[];
 };
 
 type PickerItem = {
@@ -217,7 +204,7 @@ function LitePropertyPanel({
   );
 
   if (!selectedElement) {
-    return <Text size="sm" c="dimmed">Select an element on the layout to edit its properties.</Text>;
+    return <VisibilitySettings title="Layout visibility" />;
   }
 
   const onChange = (property: IEditableProperty, value: unknown) => {
@@ -301,16 +288,10 @@ function DccExInfoPanel({
   status,
   wsStatus,
   flashInfo,
-  importing,
-  onExport,
-  onImport,
 }: {
   status: DccExStatusPayload | null;
   wsStatus: WsConnectionStatus;
   flashInfo: FlashInfo | null;
-  importing: boolean;
-  onExport: () => void;
-  onImport: () => void;
 }) {
   const totalBytes = flashInfo?.totalBytes ?? (flashInfo ? flashInfo.total * 1024 : 0);
   const usedBytes = flashInfo?.usedBytes ?? (flashInfo ? flashInfo.used * 1024 : 0);
@@ -334,10 +315,19 @@ function DccExInfoPanel({
             <InfoRow label="PROG current" value={status ? `${status.progCurrentMa} mA` : "—"} color="yellow" />
             <InfoRow label="Uptime" value={status ? formatUptime(status.uptimeMs) : "—"} color="teal" />
             <InfoRow label="Free memory" value={status ? `${Math.round(status.freeHeapBytes / 1024)} KB` : "—"} color="indigo" />
+            <InfoRow label="Minimum free memory" value={status?.minimumFreeHeapBytes !== undefined ? `${Math.round(status.minimumFreeHeapBytes / 1024)} KB` : "—"} color={(status?.minimumFreeHeapBytes ?? 999999) < 40000 ? "red" : "blue"} />
             <InfoRow label="Processor" value={status?.cpuCores ? `${status.cpuCores} cores · ${status.cpuFrequencyMhz ?? 240} MHz` : "—"} color="violet" />
             <InfoRow label="Core 0 · Wi-Fi / web" value={status?.cpuCore0Percent !== undefined ? `${status.cpuCore0Percent}%` : "—"} color={(status?.cpuCore0Percent ?? 0) >= 85 ? "red" : "cyan"} />
             <InfoRow label="Core 1 · DCC-EX activity" value={status?.cpuCore1Percent !== undefined ? `${status.cpuCore1Percent}%` : "—"} color="teal" />
             <InfoRow label="Chip temperature" value={status?.chipTemperatureC !== undefined ? `${status.chipTemperatureC.toFixed(1)} °C` : "—"} color={(status?.chipTemperatureC ?? 0) >= 75 ? "red" : "orange"} />
+            <InfoRow label="WebSocket clients" value={status?.wsClients !== undefined ? String(status.wsClients) : "—"} color="cyan" />
+            <InfoRow label="WS command queue" value={status?.wsCommandQueueLength !== undefined ? String(status.wsCommandQueueLength) : "—"} color={(status?.wsCommandQueueLength ?? 0) >= 6 ? "red" : "teal"} />
+            <InfoRow label="Dropped WS commands" value={status?.droppedWsCommands !== undefined ? String(status.droppedWsCommands) : "—"} color={(status?.droppedWsCommands ?? 0) > 0 ? "red" : "green"} />
+            <InfoRow label="Dropped telemetry" value={status?.droppedWsTelemetry !== undefined ? String(status.droppedWsTelemetry) : "—"} color={(status?.droppedWsTelemetry ?? 0) > 0 ? "orange" : "green"} />
+            <InfoRow label="Dropped control messages" value={status?.droppedWsControl !== undefined ? String(status.droppedWsControl) : "—"} color={(status?.droppedWsControl ?? 0) > 0 ? "red" : "green"} />
+            <InfoRow label="Low-memory WS drops" value={status?.droppedWsLowMemory !== undefined ? String(status.droppedWsLowMemory) : "—"} color={(status?.droppedWsLowMemory ?? 0) > 0 ? "orange" : "green"} />
+            <InfoRow label="Largest free heap block" value={status?.largestFreeHeapBlockBytes !== undefined ? `${Math.round(status.largestFreeHeapBlockBytes / 1024)} KB` : "—"} color={(status?.largestFreeHeapBlockBytes ?? 999999) < 16000 ? "red" : "blue"} />
+            <InfoRow label="Reset reason" value={status?.resetReason ?? "—"} color={status?.resetReason === "panic" || status?.resetReason?.includes("watchdog") ? "red" : "gray"} />
             {status && !status.voltageMeasured && (
               <Text size="xs" c="dimmed">
                 EX-CSB1 reports track power state, but this hardware does not expose a numeric track-voltage measurement.
@@ -364,16 +354,6 @@ function DccExInfoPanel({
           </Stack>
         </Card>
 
-        <Card withBorder p="sm">
-          <Stack gap="xs">
-            <Text fw={700}>Layout, locomotive & image backup</Text>
-            <Text size="xs" c="dimmed">Export or restore the complete layout, locomotive list and all locomotive images as one JSON file.</Text>
-            <Group grow>
-              <Button variant="light" color="teal" leftSection={<IconDownload size={16} />} onClick={onExport}>Export</Button>
-              <Button variant="light" color="blue" leftSection={<IconUpload size={16} />} loading={importing} onClick={onImport}>Import</Button>
-            </Group>
-          </Stack>
-        </Card>
       </Stack>
     </ScrollArea>
   );
@@ -459,7 +439,7 @@ function DevicesPanel({
   );
 }
 
-export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEditor, onDataImported }: LiteLayoutPageProps) {
+export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEditor }: LiteLayoutPageProps) {
   const commandCenter = useCommandCenter();
   const [layout, setLayout] = useState(() => new LayoutView());
   const [selectedElement, setSelectedElement] = useState<BaseElementView | null>(null);
@@ -480,14 +460,12 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
   const [hardwareDevices, setHardwareDevices] = useState<HardwareDevicesSnapshot | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
   const [locoPanelWidth, setLocoPanelWidth] = useState(() => readStoredNumber(LOCO_WIDTH_KEY, 380));
   const [propertyPanelWidth, setPropertyPanelWidth] = useState(() => readStoredNumber(PROPERTY_WIDTH_KEY, 380));
   const [locoPanelCollapsed, setLocoPanelCollapsed] = useState(() => readStoredBoolean(LOCO_COLLAPSED_KEY));
   const [propertyPanelCollapsed, setPropertyPanelCollapsed] = useState(() => readStoredBoolean(PROPERTY_COLLAPSED_KEY));
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>(readStoredRightPanelMode);
   const resizeRef = useRef<{ side: "left" | "right"; startX: number; startWidth: number } | null>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   const invalidate = useCallback(() => setInvalidateCounter(value => value + 1), []);
 
@@ -688,62 +666,6 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
     }
   }, [layout]);
 
-  const exportData = useCallback(async () => {
-    try {
-      const [layoutResponse, locosResponse, images] = await Promise.all([
-        fetch("/api/layout", { cache: "no-store" }),
-        fetch("/api/locos", { cache: "no-store" }),
-        exportLocoImages(),
-      ]);
-      if (!layoutResponse.ok || !locosResponse.ok) throw new Error("The backup data could not be loaded from the EX-CSB1.");
-
-      const backup: LiteBackup = {
-        format: "dcc-express-lite-backup",
-        version: 2,
-        exportedAt: new Date().toISOString(),
-        layout: await layoutResponse.json(),
-        locos: await locosResponse.json() as Loco[],
-        images,
-      };
-      const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
-      const anchor = document.createElement("a");
-      anchor.href = blobUrl;
-      anchor.download = `dcc-express-lite-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      anchor.click();
-      URL.revokeObjectURL(blobUrl);
-      showNotification({ color: "teal", title: "Backup exported", message: `Layout, locomotives and ${images.length} images were saved to a JSON file.` });
-    } catch (exportError) {
-      showNotification({ color: "red", title: "Export failed", message: exportError instanceof Error ? exportError.message : String(exportError) });
-    }
-  }, []);
-
-  const importData = useCallback(async (file: File) => {
-    setImporting(true);
-    try {
-      const backup = JSON.parse(await file.text()) as Partial<LiteBackup>;
-      if (backup.format !== "dcc-express-lite-backup" || (backup.version !== 1 && backup.version !== 2) || !backup.layout || !Array.isArray(backup.locos)) {
-        throw new Error("This is not a valid DCCExpressLite backup file.");
-      }
-
-      const images = Array.isArray(backup.images) ? backup.images : [];
-      await importLocoImages(images);
-
-      const [layoutResponse, locosResponse] = await Promise.all([
-        fetch("/api/layout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backup.layout) }),
-        fetch("/api/locos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backup.locos) }),
-      ]);
-      if (!layoutResponse.ok || !locosResponse.ok) throw new Error("The backup could not be written completely to the EX-CSB1.");
-
-      await Promise.all([loadLayout(), onDataImported()]);
-      showNotification({ color: "teal", title: "Backup imported", message: `${backup.locos.length} locomotives, ${images.length} images and the layout were restored.` });
-    } catch (importError) {
-      showNotification({ color: "red", title: "Import failed", message: importError instanceof Error ? importError.message : String(importError) });
-    } finally {
-      setImporting(false);
-      if (importInputRef.current) importInputRef.current.value = "";
-    }
-  }, [loadLayout, onDataImported]);
-
   useLayoutPageShortcuts({
     saveLayoutToServer: saveLayout,
     setTool,
@@ -890,7 +812,7 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
             <Card withBorder p="sm" className="lite-property-panel">
               {editMode ? (
                 <>
-                  <Title order={5} mb="sm">Properties</Title>
+                  <Title order={5} mb="sm">{selectedElement ? "Properties" : "Display"}</Title>
                   <LitePropertyPanel
                     selectedElement={selectedElement}
                     layout={layout}
@@ -903,27 +825,20 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
                 </>
               ) : (
                 <Tabs
-                  defaultValue="display"
+                  defaultValue="info"
                   keepMounted={false}
                   className="lite-runtime-tabs"
                   onChange={value => { if (value === "devices") void loadHardwareDevices(); }}
                 >
                   <Tabs.List grow mb="sm">
-                    <Tabs.Tab value="display">Display</Tabs.Tab>
                     <Tabs.Tab value="info">Info</Tabs.Tab>
                     <Tabs.Tab value="devices">Devices</Tabs.Tab>
                   </Tabs.List>
-                  <Tabs.Panel value="display">
-                    <VisibilitySettings title="Layout visibility" />
-                  </Tabs.Panel>
                   <Tabs.Panel value="info" className="lite-info-tab-panel">
                     <DccExInfoPanel
                       status={dccExStatus}
                       wsStatus={wsStatus}
                       flashInfo={flashInfo}
-                      importing={importing}
-                      onExport={() => void exportData()}
-                      onImport={() => importInputRef.current?.click()}
                     />
                   </Tabs.Panel>
                   <Tabs.Panel value="devices" className="lite-info-tab-panel">
@@ -940,17 +855,6 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
           )
         )}
       </div>
-
-      <input
-        ref={importInputRef}
-        type="file"
-        accept="application/json,.json"
-        hidden
-        onChange={event => {
-          const file = event.currentTarget.files?.[0];
-          if (file) void importData(file);
-        }}
-      />
 
       <Card withBorder p={5} radius="sm" className="lite-status-bar">
         <Group justify="space-between" wrap="nowrap" gap="xs">

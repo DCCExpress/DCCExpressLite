@@ -50,14 +50,13 @@ jobs:
           for file in layout.json locos.json images/bobo.png images/csorgo.png images/szergej.png images/traxx.png; do
             test -s "data/$file"
           done
-      - name: Build firmware release manifest
+      - name: Build merged firmware
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           $version = $env:RELEASE_VERSION.TrimStart('v')
-          $base = '${{ github.server_url }}/${{ github.repository }}/releases/download/v' + $version
-          ./tools/New-FirmwareManifest.ps1 -Version $version -BaseUrl $base
+          ./tools/New-MergedFirmware.ps1 -Version $version
       - name: Build web installer release index
         shell: pwsh
         env:
@@ -113,8 +112,9 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-release
-          path: artifacts/firmware/*
+          name: merged-firmware-release
+          path: artifacts/firmware/DCCExpressLite-*-merged.bin
+          if-no-files-found: error
       - name: Upload web installer for GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
@@ -126,7 +126,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: firmware-release
+          name: merged-firmware-release
           path: release
       - name: Publish GitHub Release
         env:

@@ -23,6 +23,7 @@ import {
   createCursorElement,
   closeTrackCanvasSignalAspectPopover,
   closeTrackCanvasDoubleTurnoutPopover,
+  centerLayoutInView,
   drawScene,
   TrackCanvasBlockLocoPicker,
   TrackCanvasSignalAspectPopover,
@@ -72,6 +73,7 @@ export default function TrackCanvas({
   invalidateCounter,
   onInvalidate,
   fitCounter,
+  centerCounter = 0,
   turnoutSelectionMode,
   setBusy,
   locos,
@@ -347,6 +349,18 @@ export default function TrackCanvas({
     persistView();
     invalidate();
   }, [fitCounter]);
+
+  useEffect(() => {
+    if (centerCounter === 0) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    centerLayoutInView(layoutRef.current, viewRef.current, rect.width, rect.height);
+    persistView();
+    invalidate();
+  }, [centerCounter]);
 
   useEffect(() => {
     if (selectedElement) {

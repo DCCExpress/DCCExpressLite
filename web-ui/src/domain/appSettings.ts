@@ -34,7 +34,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
 export const DEFAULT_COMMAND_CENTER_SETTINGS: ICommandCenter = {
   type: "simulator",
   z21: {
-    host: "192.168.1.100",
+    host: "",
     port: 21105,
   },
   dccexTcp: {
@@ -111,7 +111,7 @@ export function normalizeCommandCenterSettings(value: Partial<ICommandCenter> | 
   return {
     type: isValidCommandCenterType(value?.type) ? value.type : DEFAULT_COMMAND_CENTER_SETTINGS.type,
     z21: {
-      host: normalizeTrimmedString(value?.z21?.host, "192.168.1.100"),
+      host: normalizeTrimmedString(value?.z21?.host, ""),
       port: normalizePort(value?.z21?.port, 21105),
     },
     dccexTcp: {

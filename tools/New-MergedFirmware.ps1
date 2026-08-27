@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$build = Join-Path $ProjectRoot 'CommandStation-EX/.pio/build/ESP32'
+$build = Join-Path $ProjectRoot '.pio/build/ESP32'
 $flashSize = 4MB
 
 $bootApp = Get-ChildItem "$env:USERPROFILE/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" -ErrorAction SilentlyContinue | Select-Object -First 1

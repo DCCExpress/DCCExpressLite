@@ -11,7 +11,14 @@ export type LocoImageBackup = {
 
 type ImageListItem = {
   name: string;
+  path?: string;
+  type?: "file" | "directory";
   size: number;
+};
+
+type ImageDirectoryListing = {
+  path: string;
+  entries: ImageListItem[];
 };
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -57,12 +64,15 @@ export async function uploadLocoImage(file: File): Promise<string> {
 }
 
 export async function exportLocoImages(): Promise<LocoImageBackup[]> {
-  const listResponse = await fetch("/list", { cache: "no-store" });
+  const listResponse = await fetch("/list?path=%2Fimages", { cache: "no-store" });
   if (!listResponse.ok) throw new Error(`Image list could not be loaded: HTTP ${listResponse.status}`);
 
-  const items = await listResponse.json() as ImageListItem[];
+  const payload = await listResponse.json() as ImageListItem[] | ImageDirectoryListing;
+  const entries = Array.isArray(payload) ? payload : payload.entries;
+  if (!Array.isArray(entries)) throw new Error("Image list response has an invalid format.");
+  const items = entries.filter(item => item.type !== "directory");
   return Promise.all(items.map(async item => {
-    const path = `/${item.name.replace(/^\/+/, "")}`;
+    const path = item.path || `/images/${item.name.replace(/^\/+/, "")}`;
     const response = await fetch(path, { cache: "no-store" });
     if (!response.ok) throw new Error(`Image could not be backed up (${item.name}): HTTP ${response.status}`);
     const blob = await response.blob();

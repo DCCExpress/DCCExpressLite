@@ -1,0 +1,176 @@
+import { ActionIcon, Alert, Box, Center, Group, Loader } from "@mantine/core";
+import { showNotification } from "@mantine/notifications";
+import { IconArrowsMaximize, IconCrosshair, IconPlayerStop } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
+
+import type { Loco } from "@domain/types";
+import FullscreenLoader from "@/components/FullscreenLoader";
+import TrackCanvas from "@/components/TrackCanvas";
+import { useCommandCenter } from "@/context/CommandCenterContext";
+import type { BaseElementView } from "@/models/editor/core/BaseElementView";
+import { isTurnoutElement, LayoutView } from "@/models/editor/core/LayoutView";
+import { TrackLevelCrossingElementView } from "@/models/editor/elements/TrackLevelCrossingElementView";
+import { TrackSensorElementView } from "@/models/editor/elements/TrackSensorElementView";
+import { TrackSignalElementView } from "@/models/editor/elements/TrackSignalElementView";
+import TrackTurnoutDoubleElementView from "@/models/editor/elements/TrackTurnoutDoubleElementView";
+import type { EditorTool } from "@/models/editor/types/EditorTypes";
+import { wsApi } from "@/services/wsApi";
+import { wsClient, type WsConnectionStatus } from "@/services/wsClient";
+
+const CURSOR_TOOL: EditorTool = { mode: "cursor", elementType: "general" };
+
+export default function RuntimeLayoutOverlay({ locos }: { locos: Loco[] }) {
+  const commandCenter = useCommandCenter();
+  const [layout, setLayout] = useState(() => new LayoutView());
+  const [selectedElement, setSelectedElement] = useState<BaseElementView | null>(null);
+  const [invalidateCounter, setInvalidateCounter] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [wsStatus, setWsStatus] = useState<WsConnectionStatus>(wsClient.getStatus());
+  const [canvasBusy, setCanvasBusy] = useState(false);
+  const [canvasBusyText, setCanvasBusyText] = useState("Loading...");
+  const [fitCounter, setFitCounter] = useState(0);
+  const [centerCounter, setCenterCounter] = useState(0);
+
+  const invalidate = useCallback(() => setInvalidateCounter(value => value + 1), []);
+  const setBusy = useCallback((busy: boolean, text?: string) => {
+    setCanvasBusy(busy);
+    if (text) setCanvasBusyText(text);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/layout", { cache: "no-store" })
+      .then(response => {
+        if (!response.ok) throw new Error("The layout could not be loaded from the EX-CSB1.");
+        return response.json();
+      })
+      .then(data => {
+        if (cancelled) return;
+        const nextLayout = LayoutView.fromJSON(data);
+        nextLayout.checkRoutes();
+        setLayout(nextLayout);
+      })
+      .catch(loadError => {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => wsClient.subscribeStatus(setWsStatus), []);
+
+  useEffect(() => wsClient.on("error", data => {
+    if (data.message === "track_power_off") {
+      showNotification({ color: "red", title: "Track power is off", message: "Turn POWER ON before operating a turnout." });
+    } else if (data.message === "turnout_address_out_of_range") {
+      showNotification({ color: "red", title: "Invalid turnout address", message: "Use a linear DCC accessory address between 1 and 2048." });
+    }
+  }), []);
+
+  useEffect(() => wsClient.on("turnoutChanged", data => {
+    for (const element of layout.getAllElements()) {
+      if (isTurnoutElement(element) && element.turnoutAddress === data.address) {
+        element.turnoutClosed = data.closed;
+      } else if (element instanceof TrackTurnoutDoubleElementView) {
+        if (element.turnout1Address === data.address) element.turnout1Closed = data.closed;
+        if (element.turnout2Address === data.address) element.turnout2Closed = data.closed;
+      }
+    }
+    layout.checkRoutes();
+    invalidate();
+  }), [layout, invalidate]);
+
+  useEffect(() => wsClient.on("sensorChanged", data => {
+    for (const element of layout.getAllElements()) {
+      if (element instanceof TrackSensorElementView && element.address === data.address) element.on = data.on;
+    }
+    invalidate();
+  }), [layout, invalidate]);
+
+  useEffect(() => wsClient.on("accessoryChanged", data => {
+    for (const element of layout.getAllElements()) {
+      if (element instanceof TrackSignalElementView && element.address <= data.address && element.lastAddress >= data.address) {
+        element.setValue(data.address, data.active);
+      } else if (element instanceof TrackLevelCrossingElementView && element.basicAccessoryAddress === data.address) {
+        element.barrierClosed = data.active === element.basicAccessoryClosedValue;
+      }
+    }
+    invalidate();
+  }), [layout, invalidate]);
+
+  useEffect(() => {
+    if (wsStatus === "connected") wsApi.getLayoutRuntimeSnapshot();
+  }, [wsStatus, layout]);
+
+  if (loading) {
+    return <Center className="mobile-runtime-layout-overlay"><Loader /></Center>;
+  }
+
+  if (error) {
+    return <Box className="mobile-runtime-layout-overlay" p="md"><Alert color="red">{error}</Alert></Box>;
+  }
+
+  return (
+    <>
+      <Box className="mobile-runtime-layout-overlay">
+        <Box className="mobile-runtime-layout-canvas">
+          <TrackCanvas
+            editMode={false}
+            tool={CURSOR_TOOL}
+            layout={layout}
+            onLayoutChange={setLayout}
+            selectedElement={selectedElement}
+            onSelectedElementChange={setSelectedElement}
+            invalidateCounter={invalidateCounter}
+            onInvalidate={invalidate}
+            fitCounter={fitCounter}
+            centerCounter={centerCounter}
+            turnoutSelectionMode={false}
+            setBusy={setBusy}
+            locos={locos}
+          />
+        </Box>
+      </Box>
+      <Group className="mobile-layout-tools" gap="xs" wrap="nowrap">
+        <ActionIcon
+          size={52}
+          radius="xl"
+          variant="filled"
+          color="cyan"
+          aria-label="Center layout view"
+          title="Center layout view"
+          onClick={() => setCenterCounter(value => value + 1)}
+        >
+          <IconCrosshair size={25} />
+        </ActionIcon>
+        <ActionIcon
+          size={52}
+          radius="xl"
+          variant="filled"
+          color="teal"
+          aria-label="Fit layout view"
+          title="Fit layout view"
+          onClick={() => setFitCounter(value => value + 1)}
+        >
+          <IconArrowsMaximize size={25} />
+        </ActionIcon>
+        <ActionIcon
+          size={52}
+          radius="xl"
+          variant={commandCenter.powerInfo?.emergencyStop ? "filled" : "light"}
+          color={commandCenter.powerInfo?.emergencyStop ? "red" : "gray"}
+          className={commandCenter.powerInfo?.emergencyStop ? "blinkBadge" : ""}
+          aria-label={commandCenter.powerInfo?.emergencyStop ? "Clear emergency stop" : "Emergency stop"}
+          title={commandCenter.powerInfo?.emergencyStop ? "Clear emergency stop" : "Emergency stop"}
+          onClick={() => commandCenter.powerInfo?.emergencyStop ? wsApi.powerOn() : wsApi.emergencyStop()}
+        >
+          <IconPlayerStop size={27} />
+        </ActionIcon>
+      </Group>
+      <FullscreenLoader visible={canvasBusy} text={canvasBusyText} />
+    </>
+  );
+}

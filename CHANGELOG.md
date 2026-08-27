@@ -2,6 +2,17 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## 0.1.0-alpha.2 - 2026-08-27
+
+- Upgraded and isolated the CommandStation-EX integration for easier future upstream updates.
+- Made multi-client HTTP/WebSocket handling bounded and watchdog-safe.
+- Added a root-based LittleFS file manager with uploads, deletion, image previews and text-source viewing.
+- Added the mobile runtime layout overlay with center, fit, route progress and emergency-stop controls.
+- Made backup export/import release-independent and included locomotive images.
+- Refined the home, layout, property, information and device panels.
+- Synchronized the starter layout, locomotive data and images with the tested EX-CSB1 LittleFS contents.
+- Simplified distribution to the browser installer and one merged firmware image only.
+
 ## 0.1.0-alpha.1 - 2026-08-27
 
 - First public alpha release for ESP32 / EX-CSB1.

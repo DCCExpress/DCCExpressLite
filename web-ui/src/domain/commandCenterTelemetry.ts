@@ -70,6 +70,16 @@ export type DccExStatusPayload = {
   chipTemperatureC?: number;
   arduinoCore?: number;
   networkCore?: number;
+  wsClients?: number;
+  wsCommandQueueLength?: number;
+  droppedWsCommands?: number;
+  droppedWsTelemetry?: number;
+  droppedWsControl?: number;
+  droppedWsLowMemory?: number;
+  droppedWsRawLines?: number;
+  minimumFreeHeapBytes?: number;
+  largestFreeHeapBlockBytes?: number;
+  resetReason?: string;
 };
 
 export type CommandCenterLockChangedPayload = {

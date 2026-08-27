@@ -11,6 +11,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>
 #include "DIAG.h"
 #include "I2CManager.h"
 #include "IODevice.h"
@@ -20,7 +21,134 @@
 
 AsyncWebServer httpServer(80);
 AsyncWebSocket ws("/ws");
-static HTTPSerialWrapper httpCommandStream(&Serial, &ws);
+static HTTPSerialWrapper httpCommandStream(&Serial);
+
+static const uint8_t WS_INBOUND_QUEUE_SIZE = 6;
+static const size_t WS_MAX_COMMAND_BYTES = 7168;
+static const uint8_t WS_MAX_TRACKED_CLIENTS = 8;
+static const uint8_t WS_PENDING_CONTROL_SIZE = 24;
+static const uint32_t WS_MIN_FREE_HEAP_BYTES = 80 * 1024;
+static const uint32_t WS_MIN_ALLOC_BLOCK_BYTES = 12 * 1024;
+
+enum class WsInboundKind : uint8_t { Connect, Disconnect, Data };
+
+struct WsInboundItem
+{
+  volatile bool ready;
+  WsInboundKind kind;
+  uint32_t clientId;
+  uint32_t freeHeapBytes;
+  size_t length;
+  char payload[WS_MAX_COMMAND_BYTES + 1];
+};
+
+struct PendingWsMessage
+{
+  bool used = false;
+  uint32_t clientId = 0;
+  String payload;
+};
+
+struct ClientSnapshotState
+{
+  bool active = false;
+  uint32_t clientId = 0;
+  uint8_t stage = 0;
+  int accessoryAddress = 1;
+};
+
+static WsInboundItem wsInboundQueue[WS_INBOUND_QUEUE_SIZE] = {};
+static portMUX_TYPE wsInboundMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile uint8_t wsInboundHead = 0;
+static volatile uint8_t wsInboundTail = 0;
+static volatile uint8_t wsInboundCount = 0;
+static uint32_t connectedClientIds[WS_MAX_TRACKED_CLIENTS] = {};
+static uint8_t connectedClientCount = 0;
+static PendingWsMessage pendingWsMessages[WS_PENDING_CONTROL_SIZE];
+static ClientSnapshotState clientSnapshots[WS_MAX_TRACKED_CLIENTS];
+static volatile uint32_t droppedWsCommands = 0;
+static uint32_t droppedWsTelemetry = 0;
+static uint32_t droppedWsControl = 0;
+static uint32_t droppedWsLowMemory = 0;
+static uint32_t minFreeHeapBytes = UINT32_MAX;
+static unsigned long lastWsCleanupAtMs = 0;
+static esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
+
+static const char *resetReasonName(esp_reset_reason_t reason);
+
+static bool enqueueWsInbound(WsInboundKind kind, uint32_t clientId,
+                             const uint8_t *payload = nullptr, size_t length = 0)
+{
+  if (length > WS_MAX_COMMAND_BYTES)
+  {
+    ++droppedWsCommands;
+    return false;
+  }
+
+  uint8_t slotIndex;
+  portENTER_CRITICAL(&wsInboundMux);
+  if (wsInboundCount >= WS_INBOUND_QUEUE_SIZE)
+  {
+    ++droppedWsCommands;
+    portEXIT_CRITICAL(&wsInboundMux);
+    return false;
+  }
+  slotIndex = wsInboundTail;
+  wsInboundTail = (wsInboundTail + 1) % WS_INBOUND_QUEUE_SIZE;
+  ++wsInboundCount;
+  wsInboundQueue[slotIndex].ready = false;
+  portEXIT_CRITICAL(&wsInboundMux);
+
+  WsInboundItem &slot = wsInboundQueue[slotIndex];
+  slot.kind = kind;
+  slot.clientId = clientId;
+  slot.freeHeapBytes = ESP.getFreeHeap();
+  slot.length = length;
+  if (payload && length)
+    memcpy(slot.payload, payload, length);
+  slot.payload[length] = '\0';
+
+  portENTER_CRITICAL(&wsInboundMux);
+  slot.ready = true;
+  portEXIT_CRITICAL(&wsInboundMux);
+  return true;
+}
+
+static WsInboundItem *peekWsInbound()
+{
+  WsInboundItem *item = nullptr;
+  portENTER_CRITICAL(&wsInboundMux);
+  if (wsInboundCount && wsInboundQueue[wsInboundHead].ready)
+    item = &wsInboundQueue[wsInboundHead];
+  portEXIT_CRITICAL(&wsInboundMux);
+  return item;
+}
+
+static void popWsInbound()
+{
+  portENTER_CRITICAL(&wsInboundMux);
+  if (wsInboundCount)
+  {
+    wsInboundQueue[wsInboundHead].ready = false;
+    wsInboundHead = (wsInboundHead + 1) % WS_INBOUND_QUEUE_SIZE;
+    --wsInboundCount;
+  }
+  portEXIT_CRITICAL(&wsInboundMux);
+}
+
+static uint8_t wsInboundLength()
+{
+  portENTER_CRITICAL(&wsInboundMux);
+  const uint8_t length = wsInboundCount;
+  portEXIT_CRITICAL(&wsInboundMux);
+  return length;
+}
+
+static bool hasWsAllocationHeadroom(size_t messageLength = 0)
+{
+  const uint32_t requiredBlock = max(static_cast<uint32_t>(messageLength + 2048), WS_MIN_ALLOC_BLOCK_BYTES);
+  return ESP.getFreeHeap() >= WS_MIN_FREE_HEAP_BYTES && ESP.getMaxAllocHeap() >= requiredBlock;
+}
 
 static volatile uint32_t cpuIdleCounters[2] = {0, 0};
 static uint32_t cpuIdleBaseline[2] = {1, 1};
@@ -130,22 +258,108 @@ static String makeMessage(const char *type, const String &data, const char *uuid
   return json;
 }
 
-static void sendToClient(AsyncWebSocketClient *client, const char *type, const String &data, const char *uuid = nullptr)
+static bool trySendToClient(uint32_t clientId, const String &message)
 {
-  if (client && client->status() == WS_CONNECTED)
+  AsyncWebSocketClient *client = ws.client(clientId);
+  if (!client || client->status() != WS_CONNECTED)
+    return true;
+  if (client->queueIsFull() || !ws.availableForWrite(clientId))
+    return false;
+  if (!hasWsAllocationHeadroom(message.length()))
+    return false;
+  client->text(message);
+  return true;
+}
+
+static void queueControlMessage(uint32_t clientId, const String &message)
+{
+  if (!hasWsAllocationHeadroom(message.length()))
   {
-    client->text(makeMessage(type, data, uuid));
+    ++droppedWsControl;
+    ++droppedWsLowMemory;
+    return;
+  }
+  for (PendingWsMessage &pending : pendingWsMessages)
+  {
+    if (pending.used) continue;
+    pending.used = true;
+    pending.clientId = clientId;
+    pending.payload = message;
+    return;
+  }
+  ++droppedWsControl;
+}
+
+static void sendToClient(uint32_t clientId, const char *type, const String &data,
+                         const char *uuid = nullptr, bool droppable = false)
+{
+  if (!clientId) return;
+  if (!hasWsAllocationHeadroom(data.length() + 128))
+  {
+    if (droppable) ++droppedWsTelemetry;
+    else ++droppedWsControl;
+    ++droppedWsLowMemory;
+    return;
+  }
+  const String message = makeMessage(type, data, uuid);
+  if (trySendToClient(clientId, message)) return;
+  if (droppable)
+    ++droppedWsTelemetry;
+  else
+    queueControlMessage(clientId, message);
+}
+
+static void broadcastMessage(const char *type, const String &data,
+                             const char *uuid = nullptr, bool droppable = false)
+{
+  if (!hasWsAllocationHeadroom(data.length() + 128))
+  {
+    if (droppable) droppedWsTelemetry += connectedClientCount;
+    else droppedWsControl += connectedClientCount;
+    droppedWsLowMemory += connectedClientCount;
+    return;
+  }
+  const String message = makeMessage(type, data, uuid);
+
+  // Telemetry is identical for every client. Use one reference-counted
+  // WebSocket buffer instead of allocating a separate copy per browser.
+  // This keeps periodic status traffic from multiplying heap usage as
+  // clients are added. If any client is already backed up, drop this sample.
+  if (droppable)
+  {
+    if (!ws.availableForWriteAll())
+    {
+      droppedWsTelemetry += connectedClientCount;
+      return;
+    }
+
+    AsyncWebSocketMessageBuffer *buffer =
+      ws.makeBuffer(reinterpret_cast<uint8_t *>(const_cast<char *>(message.c_str())), message.length());
+    if (!buffer)
+    {
+      droppedWsTelemetry += connectedClientCount;
+      ++droppedWsLowMemory;
+      return;
+    }
+
+    ws.textAll(buffer);
+    return;
+  }
+
+  for (uint8_t i = 0; i < connectedClientCount; ++i)
+  {
+    const uint32_t clientId = connectedClientIds[i];
+    if (trySendToClient(clientId, message)) continue;
+    if (droppable)
+      ++droppedWsTelemetry;
+    else
+      queueControlMessage(clientId, message);
   }
 }
 
-static void broadcastMessage(const char *type, const String &data, const char *uuid = nullptr)
+static void sendError(uint32_t clientId, const String &message, const char *uuid = nullptr)
 {
-  ws.textAll(makeMessage(type, data, uuid));
-}
-
-static void sendError(AsyncWebSocketClient *client, const String &message, const char *uuid = nullptr)
-{
-  sendToClient(client, "error", "{\"message\":\"" + escapeJson(message) + "\"}", uuid);
+  sendToClient(clientId, "error", "{\"message\":\"" + escapeJson(message) + "\"}", uuid);
 }
 
 static void dccParseRaw(const String &raw)
@@ -165,7 +379,7 @@ static void sendDirectCommandResponse(const String &response, const char *uuid =
   broadcastMessage("dccExDirectCommandResponse", "{\"response\":\"" + escapeJson(response) + "\"}", uuid);
 }
 
-static void sendCommandCenterInfo(AsyncWebSocketClient *client = nullptr)
+static void sendCommandCenterInfo(uint32_t clientId = 0)
 {
   String data = "{";
   data += "\"alive\":true";
@@ -176,13 +390,13 @@ static void sendCommandCenterInfo(AsyncWebSocketClient *client = nullptr)
   data += ",\"connectionString\":\"esp32://local\"";
   data += "}";
 
-  if (client)
-    sendToClient(client, "commandCenterInfo", data);
+  if (clientId)
+    sendToClient(clientId, "commandCenterInfo", data);
   else
     broadcastMessage("commandCenterInfo", data);
 }
 
-static void sendPowerInfo(AsyncWebSocketClient *client = nullptr)
+static void sendPowerInfo(uint32_t clientId = 0)
 {
   String data = "{";
   data += "\"emergencyStop\":";
@@ -196,8 +410,8 @@ static void sendPowerInfo(AsyncWebSocketClient *client = nullptr)
   data += programmingModeActive ? "true" : "false";
   data += "}";
 
-  if (client)
-    sendToClient(client, "powerInfo", data);
+  if (clientId)
+    sendToClient(clientId, "powerInfo", data);
   else
     broadcastMessage("powerInfo", data);
 }
@@ -221,49 +435,135 @@ static String makeDccExStatusData()
   data += ",\"chipTemperatureC\":" + String(temperatureRead(), 1);
   data += ",\"arduinoCore\":" + String(ARDUINO_RUNNING_CORE);
   data += ",\"networkCore\":" + String(CONFIG_ASYNC_TCP_RUNNING_CORE);
+  data += ",\"wsClients\":" + String(connectedClientCount);
+  data += ",\"wsCommandQueueLength\":" + String(wsInboundLength());
+  data += ",\"droppedWsCommands\":" + String(droppedWsCommands);
+  data += ",\"droppedWsTelemetry\":" + String(droppedWsTelemetry);
+  data += ",\"droppedWsControl\":" + String(droppedWsControl);
+  data += ",\"droppedWsLowMemory\":" + String(droppedWsLowMemory);
+  data += ",\"droppedWsRawLines\":" + String(httpCommandStream.droppedLines());
+  data += ",\"minimumFreeHeapBytes\":" + String(minFreeHeapBytes == UINT32_MAX ? ESP.getFreeHeap() : minFreeHeapBytes);
+  data += ",\"largestFreeHeapBlockBytes\":" + String(ESP.getMaxAllocHeap());
+  data += ",\"resetReason\":\"" + String(resetReasonName(bootResetReason)) + "\"";
   data += "}";
   return data;
 }
 
-static void sendDccExStatus(AsyncWebSocketClient *client = nullptr)
+static void sendDccExStatus(uint32_t clientId = 0)
 {
+  if (!hasWsAllocationHeadroom(1024))
+  {
+    if (clientId) ++droppedWsTelemetry;
+    else droppedWsTelemetry += connectedClientCount;
+    ++droppedWsLowMemory;
+    return;
+  }
   const String data = makeDccExStatusData();
-  if (client)
-    sendToClient(client, "dccExStatus", data);
+  if (clientId)
+    sendToClient(clientId, "dccExStatus", data);
   else
-    broadcastMessage("dccExStatus", data);
+    broadcastMessage("dccExStatus", data, nullptr, true);
 }
 
-static void sendAccessorySnapshots(AsyncWebSocketClient *client)
+static void sendAccessorySnapshot(uint32_t clientId, int address)
 {
-  for (int address = 1; address <= MAX_LINEAR_ACCESSORY_ADDRESS; ++address)
+  if (turnoutStateCache[address] >= 0)
   {
-    if (turnoutStateCache[address] >= 0)
-    {
-      sendToClient(client, "turnoutChanged",
-        "{\"address\":" + String(address) +
-        ",\"closed\":" + String(turnoutStateCache[address] ? "true" : "false") + "}");
-    }
-
-    if (basicAccessoryStateCache[address] >= 0)
-    {
-      sendToClient(client, "accessoryChanged",
-        "{\"address\":" + String(address) +
-        ",\"active\":" + String(basicAccessoryStateCache[address] ? "true" : "false") + "}");
-    }
+    sendToClient(clientId, "turnoutChanged",
+      "{\"address\":" + String(address) +
+      ",\"closed\":" + String(turnoutStateCache[address] ? "true" : "false") + "}");
+  }
+  if (basicAccessoryStateCache[address] >= 0)
+  {
+    sendToClient(clientId, "accessoryChanged",
+      "{\"address\":" + String(address) +
+      ",\"active\":" + String(basicAccessoryStateCache[address] ? "true" : "false") + "}");
   }
 }
 
-static void sendInitialSnapshots(AsyncWebSocketClient *client)
+static void startInitialSnapshots(uint32_t clientId)
 {
-  sendToClient(client, "ws:welcome", "{\"message\":\"Connected\"}");
-  sendCommandCenterInfo(client);
-  sendPowerInfo(client);
-  sendDccExStatus(client);
-  sendToClient(client, "commandCenterLockChanged", "{\"locked\":false,\"lockOwner\":null,\"reason\":null}");
-  sendToClient(client, "runtimeVariablesSnapshot", "{\"variables\":{}}");
-  sendToClient(client, "serverRuntimeStatsChanged", "{\"uptimeMs\":0,\"wsClients\":0}");
-  sendAccessorySnapshots(client);
+  for (ClientSnapshotState &snapshot : clientSnapshots)
+  {
+    if (snapshot.active && snapshot.clientId != clientId) continue;
+    snapshot.active = true;
+    snapshot.clientId = clientId;
+    snapshot.stage = 0;
+    snapshot.accessoryAddress = 1;
+    return;
+  }
+  ++droppedWsControl;
+}
+
+static void stopInitialSnapshots(uint32_t clientId)
+{
+  for (ClientSnapshotState &snapshot : clientSnapshots)
+  {
+    if (snapshot.clientId != clientId) continue;
+    snapshot.active = false;
+  }
+}
+
+static void processInitialSnapshots()
+{
+  for (ClientSnapshotState &snapshot : clientSnapshots)
+  {
+    if (!snapshot.active) continue;
+    if (!ws.client(snapshot.clientId))
+    {
+      snapshot.active = false;
+      continue;
+    }
+
+    switch (snapshot.stage)
+    {
+      case 0:
+        sendToClient(snapshot.clientId, "ws:welcome", "{\"message\":\"Connected\"}");
+        ++snapshot.stage;
+        break;
+      case 1:
+        sendCommandCenterInfo(snapshot.clientId);
+        ++snapshot.stage;
+        break;
+      case 2:
+        sendPowerInfo(snapshot.clientId);
+        ++snapshot.stage;
+        break;
+      case 3:
+        sendDccExStatus(snapshot.clientId);
+        ++snapshot.stage;
+        break;
+      case 4:
+        sendToClient(snapshot.clientId, "commandCenterLockChanged", "{\"locked\":false,\"lockOwner\":null,\"reason\":null}");
+        ++snapshot.stage;
+        break;
+      case 5:
+        sendToClient(snapshot.clientId, "runtimeVariablesSnapshot", "{\"variables\":{}}");
+        ++snapshot.stage;
+        break;
+      case 6:
+        sendToClient(snapshot.clientId, "serverRuntimeStatsChanged",
+          "{\"uptimeMs\":" + String(millis()) +
+          ",\"wsClients\":" + String(connectedClientCount) +
+          ",\"queueLength\":" + String(wsInboundLength()) + "}");
+        ++snapshot.stage;
+        break;
+      default:
+      {
+        bool sent = false;
+        while (snapshot.accessoryAddress <= MAX_LINEAR_ACCESSORY_ADDRESS)
+        {
+          const int address = snapshot.accessoryAddress++;
+          if (turnoutStateCache[address] < 0 && basicAccessoryStateCache[address] < 0) continue;
+          sendAccessorySnapshot(snapshot.clientId, address);
+          sent = true;
+          break;
+        }
+        if (!sent) snapshot.active = false;
+        break;
+      }
+    }
+  }
 }
 
 static int getLocoSlot(int address)
@@ -417,7 +717,7 @@ static bool isLocoDirectionInverted(int address)
   return false;
 }
 
-static void handleFileCommand(AsyncWebSocketClient *client, JsonDocument &doc, const char *uuid)
+static void handleFileCommand(uint32_t clientId, JsonDocument &doc, const char *uuid)
 {
   JsonObjectConst data = doc["data"].as<JsonObjectConst>();
   const String requestId = data["requestId"] | "";
@@ -426,7 +726,7 @@ static void handleFileCommand(AsyncWebSocketClient *client, JsonDocument &doc, c
 
   if (!fileName.length())
   {
-    sendToClient(client, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Missing fileName\"}", uuid);
+    sendToClient(clientId, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Missing fileName\"}", uuid);
     return;
   }
 
@@ -441,7 +741,7 @@ static void handleFileCommand(AsyncWebSocketClient *client, JsonDocument &doc, c
       response += ",\"content\":\"" + escapeJson(content) + "\"";
 
     response += "}";
-    sendToClient(client, "fileResponse", response, uuid);
+    sendToClient(clientId, "fileResponse", response, uuid);
     return;
   }
 
@@ -455,14 +755,14 @@ static void handleFileCommand(AsyncWebSocketClient *client, JsonDocument &doc, c
       content = data["content"] | "";
 
     const bool ok = writeFileText(fileName, content);
-    sendToClient(client, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":" + String(ok ? "true" : "false") + ",\"fileName\":\"" + escapeJson(fileName) + "\"}", uuid);
+    sendToClient(clientId, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":" + String(ok ? "true" : "false") + ",\"fileName\":\"" + escapeJson(fileName) + "\"}", uuid);
     return;
   }
 
-  sendToClient(client, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Unsupported file action\"}", uuid);
+  sendToClient(clientId, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Unsupported file action\"}", uuid);
 }
 
-static void handleLocosCommand(AsyncWebSocketClient *client, JsonDocument &doc, const char *uuid)
+static void handleLocosCommand(uint32_t clientId, JsonDocument &doc, const char *uuid)
 {
   JsonObjectConst data = doc["data"].as<JsonObjectConst>();
   const String requestId = data["requestId"] | "";
@@ -477,7 +777,7 @@ static void handleLocosCommand(AsyncWebSocketClient *client, JsonDocument &doc, 
       content = "[]";
     }
 
-    sendToClient(client, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"load\",\"ok\":true,\"locos\":" + content + "}", uuid);
+    sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"load\",\"ok\":true,\"locos\":" + content + "}", uuid);
     return;
   }
 
@@ -491,29 +791,21 @@ static void handleLocosCommand(AsyncWebSocketClient *client, JsonDocument &doc, 
     if (ok)
       loadLocoConfiguration();
 
-    sendToClient(client, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"save\",\"ok\":" + String(ok ? "true" : "false") + ",\"count\":" + String(locos.size()) + "}", uuid);
+    sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"save\",\"ok\":" + String(ok ? "true" : "false") + ",\"count\":" + String(locos.size()) + "}", uuid);
     return;
   }
 
-  sendToClient(client, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Unsupported locos action\"}", uuid);
+  sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Unsupported locos action\"}", uuid);
 }
 
-static void handleWsMessage(AsyncWebSocket *server, AsyncWebSocketClient *client, uint8_t *data, size_t len)
+static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 {
-  String msg;
-  msg.reserve(len + 1);
-
-  for (size_t i = 0; i < len; ++i)
-  {
-    msg += (char)data[i];
-  }
-
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, msg);
+  DeserializationError error = deserializeJson(doc, data, len);
 
   if (error)
   {
-    sendError(client, "invalid_json");
+    sendError(clientId, "invalid_json");
     return;
   }
 
@@ -526,7 +818,7 @@ static void handleWsMessage(AsyncWebSocket *server, AsyncWebSocketClient *client
   {
     const String raw = payload["raw"] | "";
     dccParseRaw(raw);
-    server->textAll("{\"type\":\"ack\",\"data\":\"" + escapeJson(raw) + "\"}");
+    broadcastMessage("ack", "\"" + escapeJson(raw) + "\"");
     sendDirectCommandResponse(raw, uuid);
     return;
   }
@@ -601,7 +893,7 @@ static void handleWsMessage(AsyncWebSocket *server, AsyncWebSocketClient *client
   {
     const int address = getInt(payload["locoAddress"]);
     dccParseRaw("<t " + String(address) + ">");
-    sendToClient(client, "locoState", makeLocoStateData(getLocoSlot(address)), uuid);
+    sendToClient(clientId, "locoState", makeLocoStateData(getLocoSlot(address)), uuid);
     return;
   }
 
@@ -633,14 +925,14 @@ static void handleWsMessage(AsyncWebSocket *server, AsyncWebSocketClient *client
 
     if (address < 1 || address > 2048)
     {
-      sendError(client, "turnout_address_out_of_range", uuid);
+      sendError(clientId, "turnout_address_out_of_range", uuid);
       return;
     }
 
     if (!trackPowerOn)
     {
-      sendError(client, "track_power_off", uuid);
-      sendPowerInfo(client);
+      sendError(clientId, "track_power_off", uuid);
+      sendPowerInfo(clientId);
       return;
     }
 
@@ -673,32 +965,127 @@ static void handleWsMessage(AsyncWebSocket *server, AsyncWebSocketClient *client
 
   if (type == "getLayoutRuntimeSnapshot")
   {
-    sendCommandCenterInfo(client);
-    sendPowerInfo(client);
-    sendDccExStatus(client);
-    sendAccessorySnapshots(client);
+    startInitialSnapshots(clientId);
     return;
   }
 
   if (type == "fileCommand")
   {
-    handleFileCommand(client, doc, uuid);
+    handleFileCommand(clientId, doc, uuid);
     return;
   }
 
   if (type == "locosCommand")
   {
-    handleLocosCommand(client, doc, uuid);
+    handleLocosCommand(clientId, doc, uuid);
     return;
   }
 
-  sendError(client, "unknown_command: " + type, uuid);
+  sendError(clientId, "unknown_command: " + type, uuid);
 }
 
 void sendFormattedInfo(String s)
 {
-  broadcastMessage("rawInfo", "{\"raw\":\"" + escapeJson(s) + "\"}");
+  broadcastMessage("rawInfo", "{\"raw\":\"" + escapeJson(s) + "\"}", nullptr, true);
   broadcastMessage("dccExDirectCommandResponse", "{\"response\":\"" + escapeJson(s) + "\"}");
+}
+
+static void addConnectedClient(uint32_t clientId)
+{
+  for (uint8_t i = 0; i < connectedClientCount; ++i)
+    if (connectedClientIds[i] == clientId) return;
+  if (connectedClientCount >= WS_MAX_TRACKED_CLIENTS)
+  {
+    ++droppedWsControl;
+    return;
+  }
+  connectedClientIds[connectedClientCount++] = clientId;
+}
+
+static void removeConnectedClient(uint32_t clientId)
+{
+  for (uint8_t i = 0; i < connectedClientCount; ++i)
+  {
+    if (connectedClientIds[i] != clientId) continue;
+    connectedClientIds[i] = connectedClientIds[connectedClientCount - 1];
+    connectedClientIds[connectedClientCount - 1] = 0;
+    --connectedClientCount;
+    break;
+  }
+  stopInitialSnapshots(clientId);
+  for (PendingWsMessage &pending : pendingWsMessages)
+  {
+    if (!pending.used || pending.clientId != clientId) continue;
+    pending.used = false;
+    pending.payload = "";
+  }
+}
+
+static void flushPendingWsMessages()
+{
+  uint8_t sent = 0;
+  for (PendingWsMessage &pending : pendingWsMessages)
+  {
+    if (!pending.used) continue;
+    if (!trySendToClient(pending.clientId, pending.payload)) continue;
+    pending.used = false;
+    pending.payload = "";
+    if (++sent >= 4) break;
+  }
+}
+
+static void processWsInbound()
+{
+  for (uint8_t processed = 0; processed < 2; ++processed)
+  {
+    WsInboundItem *item = peekWsInbound();
+    if (!item) return;
+
+    if (item->kind == WsInboundKind::Connect)
+    {
+      addConnectedClient(item->clientId);
+      const uint32_t heapAfter = ESP.getFreeHeap();
+      Serial.printf("WS connect id=%lu clients=%u heapBefore=%lu heapAfter=%lu minHeap=%lu queue=%u\n",
+        static_cast<unsigned long>(item->clientId), connectedClientCount,
+        static_cast<unsigned long>(item->freeHeapBytes), static_cast<unsigned long>(heapAfter),
+        static_cast<unsigned long>(ESP.getMinFreeHeap()), wsInboundLength());
+      startInitialSnapshots(item->clientId);
+    }
+    else if (item->kind == WsInboundKind::Disconnect)
+    {
+      removeConnectedClient(item->clientId);
+      Serial.printf("WS disconnect id=%lu clients=%u heap=%lu minHeap=%lu queue=%u\n",
+        static_cast<unsigned long>(item->clientId), connectedClientCount,
+        static_cast<unsigned long>(ESP.getFreeHeap()),
+        static_cast<unsigned long>(ESP.getMinFreeHeap()), wsInboundLength());
+    }
+    else
+    {
+      if (!hasWsAllocationHeadroom(item->length + 2048))
+        return;
+      handleWsMessage(item->clientId, item->payload, item->length);
+    }
+
+    popWsInbound();
+  }
+}
+
+static const char *resetReasonName(esp_reset_reason_t reason)
+{
+  switch (reason)
+  {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt-watchdog";
+    case ESP_RST_TASK_WDT: return "task-watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep-sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    default: return "unknown";
+  }
 }
 
 static void scheduleRestart()
@@ -813,17 +1200,75 @@ static void sendCompressedAsset(AsyncWebServerRequest *request,
   request->send(response);
 }
 
-static String sanitizeImageFileName(String filename)
+static bool normalizeFsPath(String input, String &normalized, bool allowRoot = true)
 {
-  filename.replace("\\", "_");
-  filename.replace("/", "_");
-  filename.replace("..", "_");
+  input.trim();
+  input.replace("\\", "/");
+
+  if (!input.startsWith("/"))
+    input = "/" + input;
+
+  normalized = "";
+  int start = 0;
+  while (start < static_cast<int>(input.length()))
+  {
+    while (start < static_cast<int>(input.length()) && input[start] == '/')
+      ++start;
+    if (start >= static_cast<int>(input.length())) break;
+
+    int end = input.indexOf('/', start);
+    if (end < 0) end = input.length();
+    String segment = input.substring(start, end);
+    segment.trim();
+
+    if (segment == "..") return false;
+    if (segment.length() && segment != ".")
+    {
+      for (size_t i = 0; i < segment.length(); ++i)
+      {
+        if (static_cast<uint8_t>(segment[i]) < 32) return false;
+      }
+      normalized += "/" + segment;
+    }
+    start = end + 1;
+  }
+
+  if (!normalized.length()) normalized = "/";
+  if (!allowRoot && normalized == "/") return false;
+  return normalized.length() <= 240;
+}
+
+static String sanitizeFsFileName(String filename)
+{
+  filename.replace("\\", "/");
+  const int slash = filename.lastIndexOf('/');
+  if (slash >= 0) filename = filename.substring(slash + 1);
   filename.trim();
+
+  if (!filename.length() || filename == "." || filename == ".." || filename.length() > 96)
+    return "";
+
+  for (size_t i = 0; i < filename.length(); ++i)
+  {
+    const uint8_t value = static_cast<uint8_t>(filename[i]);
+    if (value < 32 || filename[i] == '/' || filename[i] == '\\') return "";
+  }
   return filename;
+}
+
+static String joinFsPath(const String &directory, const String &name)
+{
+  return directory == "/" ? "/" + name : directory + "/" + name;
 }
 
 void setupHTTPServer()
 {
+  bootResetReason = esp_reset_reason();
+  Serial.printf("Boot reset reason: %s (%d), freeHeap=%lu, minHeap=%lu\n",
+    resetReasonName(bootResetReason), static_cast<int>(bootResetReason),
+    static_cast<unsigned long>(ESP.getFreeHeap()),
+    static_cast<unsigned long>(ESP.getMinFreeHeap()));
+
   memset(turnoutStateCache, -1, sizeof(turnoutStateCache));
   memset(basicAccessoryStateCache, -1, sizeof(basicAccessoryStateCache));
 
@@ -851,6 +1296,11 @@ void setupHTTPServer()
   loadLocoConfiguration();
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+
+  httpServer.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request)
+                {
+                  request->send(204);
+                });
 
   httpServer.on("/api/settings/network", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
@@ -1038,114 +1488,184 @@ void setupHTTPServer()
                   sendCompressedAsset(request, "/assets/index-v2.css.gz", "/assets/index-v2.css", "text/css; charset=utf-8");
                 });
 
-  httpServer.serveStatic("/images/", LittleFS, "/images/")
-    .setCacheControl("no-cache");
+  httpServer.on("/api/files/text", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+                  String path;
+                  if (!request->hasParam("path") ||
+                      !normalizeFsPath(request->getParam("path")->value(), path, false))
+                  {
+                    request->send(400, "text/plain; charset=utf-8", "Invalid path.");
+                    return;
+                  }
 
-  httpServer.serveStatic("/", LittleFS, "/")
-    .setDefaultFile("index.html")
-    .setCacheControl("no-cache");
+                  File target = LittleFS.open(path);
+                  if (!target || target.isDirectory())
+                  {
+                    if (target) target.close();
+                    request->send(404, "text/plain; charset=utf-8", "File not found.");
+                    return;
+                  }
+                  target.close();
+
+                  AsyncWebServerResponse *response = request->beginResponse(
+                    LittleFS, path, "text/plain; charset=utf-8", false);
+                  response->addHeader("X-Content-Type-Options", "nosniff");
+                  response->addHeader("Cache-Control", "no-store");
+                  request->send(response);
+                 });
 
   httpServer.on("/list", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  File root = LittleFS.open("/images");
+                 {
+                  String directory;
+                  const String requestedPath = request->hasParam("path")
+                    ? request->getParam("path")->value()
+                    : "/";
+
+                  if (!normalizeFsPath(requestedPath, directory))
+                  {
+                    request->send(400, "application/json", "{\"ok\":false,\"message\":\"Invalid path.\"}");
+                    return;
+                  }
+
+                  File root = LittleFS.open(directory);
+                  if (!root || !root.isDirectory())
+                  {
+                    if (root) root.close();
+                    request->send(404, "application/json", "{\"ok\":false,\"message\":\"Directory not found.\"}");
+                    return;
+                  }
+
                   File file = root ? root.openNextFile() : File();
 
-                  String json = "[";
+                  String json = "{\"path\":\"" + escapeJson(directory) + "\",\"entries\":[";
                   bool first = true;
                   while (file)
                   {
-                    if (!file.isDirectory())
+                    String name = String(file.name());
+                    name.replace("\\", "/");
+                    const int slash = name.lastIndexOf('/');
+                    if (slash >= 0) name = name.substring(slash + 1);
+
+                    if (name.length())
                     {
-                      String name = String(file.name());
-                      const int slash = name.lastIndexOf('/');
-                      if (slash >= 0)
-                        name = name.substring(slash + 1);
+                      if (!first) json += ",";
 
-                      if (!first)
-                        json += ",";
-
-                      json += "{\"name\":\"images/" + escapeJson(name) + "\",";
-                      json += "\"size\":" + String(file.size()) + "}";
+                      json += "{\"name\":\"" + escapeJson(name) + "\",";
+                      json += "\"path\":\"" + escapeJson(joinFsPath(directory, name)) + "\",";
+                      json += "\"type\":\"" + String(file.isDirectory() ? "directory" : "file") + "\",";
+                      json += "\"size\":" + String(file.isDirectory() ? 0 : file.size()) + "}";
                       first = false;
                     }
 
+                    file.close();
                     file = root.openNextFile();
                   }
 
-                  json += "]";
+                  root.close();
+                  json += "]}";
                   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
                   response->addHeader("Access-Control-Allow-Origin", "*");
                   request->send(response);
-                });
+                 });
 
   httpServer.on("/delete", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  if (request->hasParam("fn"))
+                 {
+                  String path;
+                  bool valid = false;
+
+                  if (request->hasParam("path"))
                   {
-                    String filename = sanitizeImageFileName(request->getParam("fn")->value());
-
-                    if (filename.startsWith("images_"))
-                      filename = filename.substring(7);
-
-                    if (filename.length())
-                      LittleFS.remove("/images/" + filename);
+                    valid = normalizeFsPath(request->getParam("path")->value(), path, false);
                   }
-
-                  AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "OK");
-                  response->addHeader("Access-Control-Allow-Origin", "*");
-                  request->send(response);
-                });
-
-  httpServer.on("/upload", HTTP_POST,
-                [](AsyncWebServerRequest *request)
-                {
-                  request->send(200, "application/json", "{\"ok\":true}");
-                },
-                [](AsyncWebServerRequest *request, String filename, size_t index,
-                   uint8_t *data, size_t len, bool final)
-                {
-                  (void)request;
-                  static File uploadFile;
-                  static bool uploadOk = false;
-
-                  if (index == 0)
+                  else if (request->hasParam("fn"))
                   {
-                    if (uploadFile)
-                      uploadFile.close();
-
-                    if (!LittleFS.exists("/images"))
-                      LittleFS.mkdir("/images");
-
-                    filename = sanitizeImageFileName(filename);
-                    uploadOk = filename.length() > 0;
-
-                    if (uploadOk)
+                    const String filename = sanitizeFsFileName(request->getParam("fn")->value());
+                    if (filename.length())
                     {
-                      uploadFile = LittleFS.open("/images/" + filename, "w");
-                      uploadOk = (bool)uploadFile;
+                      path = "/images/" + filename;
+                      valid = true;
                     }
                   }
 
-                  if (uploadOk && len)
+                  if (!valid)
                   {
-                    if (uploadFile.write(data, len) != len)
-                      uploadOk = false;
+                    request->send(400, "application/json", "{\"ok\":false,\"message\":\"Invalid path.\"}");
+                    return;
+                  }
+
+                  File target = LittleFS.open(path);
+                  if (!target)
+                  {
+                    request->send(404, "application/json", "{\"ok\":false,\"message\":\"File or directory not found.\"}");
+                    return;
+                  }
+
+                  const bool isDirectory = target.isDirectory();
+                  target.close();
+                  const bool removed = isDirectory ? LittleFS.rmdir(path) : LittleFS.remove(path);
+                  AsyncWebServerResponse *response = request->beginResponse(
+                    removed ? 200 : 409, "application/json",
+                    removed
+                      ? "{\"ok\":true}"
+                      : "{\"ok\":false,\"message\":\"Directory must be empty before it can be deleted.\"}");
+                  response->addHeader("Access-Control-Allow-Origin", "*");
+                  request->send(response);
+                 });
+
+  httpServer.on("/upload", HTTP_POST,
+                 [](AsyncWebServerRequest *request)
+                 {
+                  const bool ok = request->_tempObject && *static_cast<bool *>(request->_tempObject);
+                  request->send(ok ? 200 : 500, "application/json",
+                    ok ? "{\"ok\":true}" : "{\"ok\":false,\"message\":\"Upload failed.\"}");
+                 },
+                 [](AsyncWebServerRequest *request, String filename, size_t index,
+                    uint8_t *data, size_t len, bool final)
+                 {
+                  if (index == 0)
+                  {
+                    request->_tempObject = malloc(sizeof(bool));
+                    if (!request->_tempObject) return;
+                    bool &uploadOk = *static_cast<bool *>(request->_tempObject);
+                    uploadOk = false;
+
+                    String directory;
+                    const String requestedPath = request->hasParam("path")
+                      ? request->getParam("path")->value()
+                      : "/images";
+                    if (!normalizeFsPath(requestedPath, directory)) return;
+
+                    File targetDirectory = LittleFS.open(directory);
+                    const bool directoryExists = targetDirectory && targetDirectory.isDirectory();
+                    if (targetDirectory) targetDirectory.close();
+                    if (!directoryExists) return;
+
+                    filename = sanitizeFsFileName(filename);
+                    if (!filename.length()) return;
+
+                    request->_tempFile = LittleFS.open(joinFsPath(directory, filename), "w");
+                    uploadOk = static_cast<bool>(request->_tempFile);
+                  }
+
+                  bool *uploadOk = static_cast<bool *>(request->_tempObject);
+                  if (uploadOk && *uploadOk && len)
+                  {
+                    if (request->_tempFile.write(data, len) != len)
+                      *uploadOk = false;
                   }
 
                   if (final)
                   {
-                    if (uploadFile)
+                    if (request->_tempFile)
                     {
-                      uploadFile.flush();
-                      uploadFile.close();
+                      request->_tempFile.flush();
+                      request->_tempFile.close();
                     }
 
-                    if (!uploadOk)
-                      Serial.println("Image upload failed.");
-
-                    uploadOk = false;
+                    if (!uploadOk || !*uploadOk)
+                      Serial.println("File upload failed.");
                   }
-                });
+                 });
 
   httpServer.on("/fsinfo", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
@@ -1174,26 +1694,44 @@ void setupHTTPServer()
                   json += "}";
                   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
                   response->addHeader("Access-Control-Allow-Origin", "*");
-                  request->send(response);
-                });
+                   request->send(response);
+                 });
+
+  // Keep static handlers last. Otherwise the catch-all filesystem handler
+  // probes API paths (for example /fsinfo) as files before their real route,
+  // causing needless LittleFS work and heap churn for every connected client.
+  httpServer.serveStatic("/images/", LittleFS, "/images/")
+    .setCacheControl("no-cache");
+
+  httpServer.serveStatic("/", LittleFS, "/")
+    .setDefaultFile("index.html")
+    .setCacheControl("no-cache");
 
   ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client,
                 AwsEventType type, void *arg, uint8_t *data, size_t len)
              {
-               (void)arg;
+               (void)server;
 
                if (type == WS_EVT_CONNECT)
                {
-                 Serial.println("WebSocket connect");
-                 sendInitialSnapshots(client);
+                 enqueueWsInbound(WsInboundKind::Connect, client->id());
                }
                else if (type == WS_EVT_DISCONNECT)
                {
-                 Serial.println("WebSocket disconnect");
+                 enqueueWsInbound(WsInboundKind::Disconnect, client->id());
                }
                else if (type == WS_EVT_DATA)
                {
-                 handleWsMessage(server, client, data, len);
+                 AwsFrameInfo *info = static_cast<AwsFrameInfo *>(arg);
+                 if (!info || info->opcode != WS_TEXT || !info->final ||
+                     info->index != 0 || info->len != len || len == 0)
+                 {
+                   portENTER_CRITICAL(&wsInboundMux);
+                   ++droppedWsCommands;
+                   portEXIT_CRITICAL(&wsInboundMux);
+                   return;
+                 }
+                 enqueueWsInbound(WsInboundKind::Data, client->id(), data, len);
                }
              });
 
@@ -1206,10 +1744,25 @@ void setupHTTPServer()
 void loopHTTPServer()
 {
   updateCpuUsage();
-  ws.cleanupClients();
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  if (freeHeap < minFreeHeapBytes) minFreeHeapBytes = freeHeap;
+
+  processWsInbound();
+  flushPendingWsMessages();
+  processInitialSnapshots();
+
+  String rawLine;
+  if (httpCommandStream.popLine(rawLine))
+    broadcastMessage("rawInfo", "{\"raw\":\"" + escapeJson(rawLine) + "\"}", nullptr, true);
 
   const unsigned long now = millis();
-  if (ws.count() > 0 && now - lastDccExStatusAtMs >= 1000)
+  if (now - lastWsCleanupAtMs >= 1000)
+  {
+    lastWsCleanupAtMs = now;
+    ws.cleanupClients();
+  }
+
+  if (connectedClientCount > 0 && now - lastDccExStatusAtMs >= 2000)
   {
     lastDccExStatusAtMs = now;
     sendDccExStatus();
