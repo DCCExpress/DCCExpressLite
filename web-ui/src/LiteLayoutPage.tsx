@@ -67,6 +67,7 @@ import ElementPreview from "@/models/editor/rendering/ElementPreviewRenderer";
 import type { EditorTool } from "@/models/editor/types/EditorTypes";
 import { wsApi } from "@/services/wsApi";
 import { wsClient, type WsConnectionStatus } from "@/services/wsClient";
+import { exportLocoImages, importLocoImages, type LocoImageBackup } from "@/api/imageApi";
 import "@/styles/propertypanel.css";
 
 type LiteLayoutPageProps = {
@@ -118,10 +119,11 @@ type HardwareDevicesSnapshot = {
 
 type LiteBackup = {
   format: "dcc-express-lite-backup";
-  version: 1;
+  version: 1 | 2;
   exportedAt: string;
   layout: unknown;
   locos: Loco[];
+  images?: LocoImageBackup[];
 };
 
 type PickerItem = {
@@ -364,8 +366,8 @@ function DccExInfoPanel({
 
         <Card withBorder p="sm">
           <Stack gap="xs">
-            <Text fw={700}>Layout & locomotive backup</Text>
-            <Text size="xs" c="dimmed">Export or restore the complete layout and locomotive list as one JSON file.</Text>
+            <Text fw={700}>Layout, locomotive & image backup</Text>
+            <Text size="xs" c="dimmed">Export or restore the complete layout, locomotive list and all locomotive images as one JSON file.</Text>
             <Group grow>
               <Button variant="light" color="teal" leftSection={<IconDownload size={16} />} onClick={onExport}>Export</Button>
               <Button variant="light" color="blue" leftSection={<IconUpload size={16} />} loading={importing} onClick={onImport}>Import</Button>
@@ -688,18 +690,20 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
 
   const exportData = useCallback(async () => {
     try {
-      const [layoutResponse, locosResponse] = await Promise.all([
+      const [layoutResponse, locosResponse, images] = await Promise.all([
         fetch("/api/layout", { cache: "no-store" }),
         fetch("/api/locos", { cache: "no-store" }),
+        exportLocoImages(),
       ]);
       if (!layoutResponse.ok || !locosResponse.ok) throw new Error("The backup data could not be loaded from the EX-CSB1.");
 
       const backup: LiteBackup = {
         format: "dcc-express-lite-backup",
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         layout: await layoutResponse.json(),
         locos: await locosResponse.json() as Loco[],
+        images,
       };
       const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
       const anchor = document.createElement("a");
@@ -707,7 +711,7 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
       anchor.download = `dcc-express-lite-backup-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(blobUrl);
-      showNotification({ color: "teal", title: "Backup exported", message: "Layout and locomotives were saved to a JSON file." });
+      showNotification({ color: "teal", title: "Backup exported", message: `Layout, locomotives and ${images.length} images were saved to a JSON file.` });
     } catch (exportError) {
       showNotification({ color: "red", title: "Export failed", message: exportError instanceof Error ? exportError.message : String(exportError) });
     }
@@ -717,9 +721,12 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
     setImporting(true);
     try {
       const backup = JSON.parse(await file.text()) as Partial<LiteBackup>;
-      if (backup.format !== "dcc-express-lite-backup" || backup.version !== 1 || !backup.layout || !Array.isArray(backup.locos)) {
+      if (backup.format !== "dcc-express-lite-backup" || (backup.version !== 1 && backup.version !== 2) || !backup.layout || !Array.isArray(backup.locos)) {
         throw new Error("This is not a valid DCCExpressLite backup file.");
       }
+
+      const images = Array.isArray(backup.images) ? backup.images : [];
+      await importLocoImages(images);
 
       const [layoutResponse, locosResponse] = await Promise.all([
         fetch("/api/layout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backup.layout) }),
@@ -728,7 +735,7 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
       if (!layoutResponse.ok || !locosResponse.ok) throw new Error("The backup could not be written completely to the EX-CSB1.");
 
       await Promise.all([loadLayout(), onDataImported()]);
-      showNotification({ color: "teal", title: "Backup imported", message: `${backup.locos.length} locomotives and the layout were restored.` });
+      showNotification({ color: "teal", title: "Backup imported", message: `${backup.locos.length} locomotives, ${images.length} images and the layout were restored.` });
     } catch (importError) {
       showNotification({ color: "red", title: "Import failed", message: importError instanceof Error ? importError.message : String(importError) });
     } finally {

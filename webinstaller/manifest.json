@@ -1,6 +1,6 @@
 {
   "name": "DCCExpressLite",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.1",
   "new_install_prompt_erase": true,
   "builds": [
     {

@@ -3,7 +3,7 @@
  *  © 2021 Neil McKechnie
  *  © 2020-2025 Harald Barth
  *  © 2020-2021 Fred Decker
- *  © 2020-2021 Chris Harlow
+ *  © 2020-2025 Chris Harlow
  *  © 2023 Nathan Kellenicki
  *  
  *  This file is part of CommandStation-EX
@@ -56,7 +56,7 @@ The configuration file for DCC-EX Command Station
 //   |
 //   +-----------------------v
 //
-#define MOTOR_SHIELD_TYPE EXCSB1
+#define MOTOR_SHIELD_TYPE STANDARD_MOTOR_SHIELD
 //
 /////////////////////////////////////////////////////////////////////////////////////
 //
@@ -137,6 +137,16 @@ The configuration file for DCC-EX Command Station
 //
 //#define ENABLE_ETHERNET true
 
+/////////////////////////////////////////////////////////////////////////////////////
+//
+// MAX_NUM_TCP_CLIENTS: If you on STM32 Ethernet (and only there) want more than
+// 9 (*) TCP clients, change this number to for example 20 here **AND** in
+// STM32lwiopts.h and follow the instructions in STM32lwiopts.h
+//
+// (*) It would be 10 if there would not be a bug in LwIP by STM32duino.
+//
+//#define MAX_NUM_TCP_CLIENTS 20
+
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
@@ -159,9 +169,7 @@ The configuration file for DCC-EX Command Station
 //OR define OLED_DRIVER width,height[,address] in pixels (address auto detected if not supplied)
 // 128x32 or 128x64 I2C SSD1306-based devices are supported.
 // Use 132,64 for a SH1106-based I2C device with a 128x64 display.
-// EX-CSB1 boards are normally supplied with a 128x64 OLED at 0x3c.
-// The driver auto-detects the I2C address.
-#define OLED_DRIVER 128,64
+// #define OLED_DRIVER 0x3c,128,32
 
 // Define scroll mode as 0, 1 or 2
 //  *  #define SCROLLMODE 0 is scroll continuous (fill screen if poss),
@@ -236,6 +244,15 @@ The configuration file for DCC-EX Command Station
 //#define HIGHEST_SHORT_ADDR 0
 // We do not support to use the same address, for example 100(long) and 100(short)
 // at the same time, there must be a border.
+
+/////////////////////////////////////////////////////////////////////////////////////
+// REDEFINE locomotive state table size.
+// This is the maximum number of locos that can be controlled at the same time.
+// This defaults to 50 (8 on a UNO/NANO).
+// If you have enough free memory you can increase this to a maximum of 255.
+// If you are short of memory (typically a Mega with WiFi and lots of accessories)
+// you can decrease it (minimum 2)   
+//#define MAX_LOCOS 100
 
 /////////////////////////////////////////////////////////////////////////////////////
 // Some newer 32bit microcontrollers boot very quickly, so powering on I2C and other

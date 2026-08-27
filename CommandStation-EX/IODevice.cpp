@@ -33,7 +33,9 @@
 
 // Link to halSetup function.  If not defined, the function reference will be NULL.
 extern __attribute__((weak)) void halSetup();
-extern __attribute__((weak)) bool exrailHalSetup();
+extern __attribute__((weak)) bool exrailHalSetup1();
+extern __attribute__((weak)) bool exrailHalSetup2();
+
 
 //==================================================================================================================
 // Static methods
@@ -59,32 +61,46 @@ void IODevice::begin() {
   if (halSetup)
     halSetup();
 
-  // include any HAL devices defined in exrail. 
+  // Include any HAL devices defined in exrail.
+  // The first pass call only creates HAL devices, 
+  // the second pass will apply servo settings etc which can only be 
+  // done after all devices (including the defaults) are created.
+  // If exrailHalSetup1 is not defined, then it will be NULL and the call
+  // will be ignored.
+  // If it returns true, then the default HAL devices will not be created.
+
   bool ignoreDefaults=false;
-  if (exrailHalSetup)
-    ignoreDefaults=exrailHalSetup();
-  if (ignoreDefaults) return;
+  if (exrailHalSetup1)
+    ignoreDefaults=exrailHalSetup1();
   
-  // Predefine two PCA9685 modules 0x40-0x41 if no conflicts
-  // Allocates 32 pins 100-131
-  const bool silent=true; // no message if these conflict
-  if (checkNoOverlap(100, 16, 0x40, silent)) {
-    PCA9685::create(100, 16, 0x40);
-  } 
-
-  if (checkNoOverlap(116, 16, 0x41, silent)) {
-    PCA9685::create(116, 16, 0x41);
-  } 
+  if (!ignoreDefaults) {
   
-  // Predefine two MCP23017 module 0x20/0x21 if no conflicts
-  // Allocates 32 pins 164-195
-  if (checkNoOverlap(164, 16, 0x20, silent)) {
-    MCP23017::create(164, 16, 0x20);
-  } 
+    // Predefine two PCA9685 modules 0x40-0x41 if no conflicts
+    // Allocates 32 pins 100-131
+    const bool silent=true; // no message if these conflict
+    if (checkNoOverlap(100, 16, 0x40, silent)) {
+      PCA9685::create(100, 16, 0x40);
+    } 
 
-  if (checkNoOverlap(180, 16, 0x21, silent)) {
-    MCP23017::create(180, 16, 0x21);
-  } 
+    if (checkNoOverlap(116, 16, 0x41, silent)) {
+      PCA9685::create(116, 16, 0x41);
+    } 
+    
+    // Predefine two MCP23017 module 0x20/0x21 if no conflicts
+    // Allocates 32 pins 164-195
+    if (checkNoOverlap(164, 16, 0x20, silent)) {
+      MCP23017::create(164, 16, 0x20);
+    } 
+
+    if (checkNoOverlap(180, 16, 0x21, silent)) {
+      MCP23017::create(180, 16, 0x21);
+    } 
+  }
+
+  // apply any second pass HAL setup from EXRAIL.
+  // This will typically set up servo profiles, or create turnouts.
+  if (exrailHalSetup2)
+    exrailHalSetup2();
 }
 
 // reset() function to reinitialise all devices
@@ -166,70 +182,6 @@ void IODevice::DumpAll() {
   for (IODevice *dev = _firstDevice; dev != 0; dev = dev->_nextDevice) {
     dev->_display();
   }
-}
-
-static const char *deviceStateName(IODevice::DeviceStateEnum state) {
-  switch (state) {
-    case IODevice::DEVSTATE_DORMANT: return "dormant";
-    case IODevice::DEVSTATE_PROBING: return "probing";
-    case IODevice::DEVSTATE_INITIALISING: return "initialising";
-    case IODevice::DEVSTATE_NORMAL: return "online";
-    case IODevice::DEVSTATE_SCANNING: return "scanning";
-    case IODevice::DEVSTATE_FAILED: return "offline";
-    default: return "unknown";
-  }
-}
-
-static const char *configuredDeviceType(VPIN firstVpin, int pinCount, uint8_t address) {
-  if (address == 0 && firstVpin == 2)
-    return "ESP32 GPIO";
-  if (pinCount == 16 && ((firstVpin == 100 && address == 0x40) || (firstVpin == 116 && address == 0x41)))
-    return "PCA9685 PWM / servo";
-  if (pinCount == 16 && ((firstVpin == 164 && address == 0x20) || (firstVpin == 180 && address == 0x21)))
-    return "MCP23017 GPIO expander";
-  if (address >= 0x20 && address <= 0x27)
-    return "I2C GPIO expander";
-  if (address >= 0x40 && address <= 0x47)
-    return "I2C PWM / servo device";
-  if (address >= 0x48 && address <= 0x4f)
-    return "I2C analogue / UART device";
-  return address ? "Configured I2C HAL device" : "Configured HAL device";
-}
-
-void IODevice::appendDeviceJson(String &json) {
-  json += '[';
-  bool first = true;
-  for (IODevice *dev = _firstDevice; dev != 0; dev = dev->_nextDevice) {
-    if (!first) json += ',';
-    first = false;
-
-    const uint8_t address = dev->_I2CAddress;
-    json += "{\"type\":\"";
-    json += configuredDeviceType(dev->_firstVpin, dev->_nPins, address);
-    json += "\",\"bus\":\"";
-    json += address ? "I2C" : "GPIO";
-    json += "\",\"address\":";
-    if (address) json += String(address); else json += "null";
-    json += ",\"addressHex\":";
-    if (address) {
-      json += '\"';
-      json += dev->_I2CAddress.toString();
-      json += '\"';
-    } else {
-      json += "null";
-    }
-    json += ",\"firstVpin\":" + String(dev->_firstVpin);
-    json += ",\"lastVpin\":" + String(dev->_firstVpin + dev->_nPins - 1);
-    json += ",\"pinCount\":" + String(dev->_nPins);
-    json += ",\"state\":\"";
-    json += deviceStateName(dev->_deviceState);
-    json += "\",\"online\":";
-    // DCC-EX diagnostics marks only DEVSTATE_FAILED as OFFLINE.  States such
-    // as dormant and scanning are normal for several working drivers.
-    json += dev->_deviceState != DEVSTATE_FAILED ? "true" : "false";
-    json += '}';
-  }
-  json += ']';
 }
 
 // Determine if the specified vpin is allocated to a device.
@@ -528,7 +480,6 @@ void IODevice::loop() {}
 void IODevice::DumpAll() {
   DIAG(F("NO HAL CONFIGURED!"));
 }
-void IODevice::appendDeviceJson(String &json) { json += "[]"; }
 bool IODevice::exists(VPIN vpin) { return (vpin > 2 && vpin < NUM_DIGITAL_PINS); }
 void IODevice::setGPIOInterruptPin(int16_t) {}
 

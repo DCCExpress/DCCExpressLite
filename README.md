@@ -24,6 +24,7 @@ Windows users can alternatively download the graphical **[DCCExpressLiteInstalle
 ## Features
 
 - DCC-EX based EX-CSB1 command-station firmware.
+- CommandStation-EX `5.6.1-Prod` core with a small, documented integration patch surface.
 - HTTP server on port `80` and WebSocket endpoint at `/ws`.
 - Responsive layout editor and runtime controller.
 - Locomotive editor, dual throttle panels, functions and per-device image mirroring.
@@ -31,7 +32,7 @@ Windows users can alternatively download the graphical **[DCCExpressLiteInstalle
 - Route sequencing, route highlighting and cached accessory states.
 - Network configuration stored on the ESP32.
 - Runtime, flash, processor, temperature and HAL/I²C device information.
-- Layout and locomotive import/export.
+- Layout, locomotive and locomotive-image import/export.
 - Automatic WebSocket reconnect and refresh-safe static file delivery.
 
 After network setup, open the IP address shown on the EX-CSB1 display. The factory setup address is usually `http://192.168.4.1`.
@@ -52,6 +53,7 @@ The command saves the credentials and restarts the EX-CSB1. Use `<WIFI?>` to che
 - `default-data/` — versioned starter layout, locomotive list and matching images.
 - `webinstaller/` — ESP Web Tools installer page source.
 - `tools/` — merged-image and release-manifest build scripts.
+- `UPSTREAM.md` — integrated DCC-EX version, local hook list and future upgrade procedure.
 - `.github/workflows/` — CI, release and GitHub Pages deployment.
 
 ## Development

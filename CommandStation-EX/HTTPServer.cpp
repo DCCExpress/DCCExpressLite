@@ -2,8 +2,11 @@
 
 #include "DCCEXParser.h"
 #include "DCC.h"
+#include "DCCExpressLite.h"
+#include "HTTPSerialWrapper.h"
 #include "HTTPServer.h"
 #include <esp_freertos_hooks.h>
+#include <vector>
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -17,6 +20,7 @@
 
 AsyncWebServer httpServer(80);
 AsyncWebSocket ws("/ws");
+static HTTPSerialWrapper httpCommandStream(&Serial, &ws);
 
 static volatile uint32_t cpuIdleCounters[2] = {0, 0};
 static uint32_t cpuIdleBaseline[2] = {1, 1};
@@ -151,7 +155,9 @@ static void dccParseRaw(const String &raw)
     return;
   }
 
-  DCCEXParser::parse(raw.c_str());
+  std::vector<byte> command(raw.length() + 1);
+  raw.getBytes(command.data(), command.size());
+  DCCEXParser::parse(&httpCommandStream, command.data(), nullptr);
 }
 
 static void sendDirectCommandResponse(const String &response, const char *uuid = nullptr)
@@ -204,8 +210,8 @@ static String makeDccExStatusData()
   data += ",\"trackVoltageOn\":" + String(trackPowerOn ? "true" : "false");
   data += ",\"voltageMeasured\":false";
   data += ",\"trackVoltageV\":null";
-  data += ",\"mainCurrentMa\":" + String(TrackManager::getMainCurrentmA());
-  data += ",\"progCurrentMa\":" + String(TrackManager::getProgCurrentmA());
+  data += ",\"mainCurrentMa\":" + String(DCCExpressLite::getMainCurrentmA());
+  data += ",\"progCurrentMa\":" + String(DCCExpressLite::getProgCurrentmA());
   data += ",\"uptimeMs\":" + String(millis());
   data += ",\"freeHeapBytes\":" + String(ESP.getFreeHeap());
   data += ",\"cpuCores\":2";
@@ -757,7 +763,7 @@ static String hardwareDevicesJson()
   json.reserve(2400);
   json += "{\"scannedAtMs\":" + String(millis());
   json += ",\"configuredDevices\":";
-  IODevice::appendDeviceJson(json);
+  DCCExpressLite::appendDeviceJson(json);
   json += ",\"i2cDevices\":[";
 
   bool first = true;

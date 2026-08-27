@@ -4,8 +4,8 @@ platformio.exe run -e ESP32 -t upload
 platformio.exe run -e ESP32 -t uploadfs     
 
 git add .
-git commit - "alpha9"
+git commit -m "Prepare v0.1.0-alpha.1"
 git push     
 
-git tag v0.1.0-alpha.9
-git push origin v0.1.0-alpha.9
+git tag v0.1.0-alpha.1
+git push origin v0.1.0-alpha.1

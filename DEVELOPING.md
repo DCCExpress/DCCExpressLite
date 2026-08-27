@@ -51,21 +51,18 @@ The embed step creates content-hashed asset URLs in `data/index.html` and gzip-c
 
 ## Firmware configuration
 
-The PlatformIO environment is `ESP32`. Its source, include and library root is `CommandStation-EX/`. The EX-CSB1 motor shield default is defined in `CommandStation-EX/config.example.h`.
+The PlatformIO environment is `ESP32`. Its source, include and library root is `CommandStation-EX/`. The committed `CommandStation-EX/config.h` is the DCCExpressLite product configuration and must be used for local and CI builds. Do not replace it with the upstream example.
 
-For a local configuration:
-
-```powershell
-Copy-Item CommandStation-EX/config.example.h CommandStation-EX/config.h
-```
-
-Keep the following hardware selection:
+The product configuration selects the EX-CSB1 hardware and OLED:
 
 ```cpp
 #define MOTOR_SHIELD_TYPE EXCSB1
+#define OLED_DRIVER 128,64
 ```
 
-`config.h` may contain machine-specific settings and should not be committed.
+Saved home-network credentials are not compiled into `config.h`; they are stored in ESP32 NVS. The upstream `config.example.h` is retained unchanged as part of the vendored DCC-EX source.
+
+The integrated upstream version and the four small core hooks are documented in [`UPSTREAM.md`](UPSTREAM.md).
 
 ## Firmware and LittleFS builds
 
@@ -129,15 +126,15 @@ pio run -e ESP32 -t buildfs
 Generate the 4 MB image used by ESP Web Tools:
 
 ```powershell
-./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.6
+./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.1
 ```
 
 Generate every desktop-installer/release artifact:
 
 ```powershell
 ./tools/New-FirmwareManifest.ps1 `
-  -Version 0.1.0-alpha.6 `
-  -BaseUrl https://github.com/DCCExpress/DCCExpressLite/releases/download/v0.1.0-alpha.6
+  -Version 0.1.0-alpha.1 `
+  -BaseUrl https://github.com/DCCExpress/DCCExpressLite/releases/download/v0.1.0-alpha.1
 ```
 
 Outputs:
@@ -161,6 +158,8 @@ The merged image uses these ESP32 flash offsets:
 
 Every push and pull request runs the web UI, firmware and LittleFS builds.
 
+CI uses the committed DCCExpressLite `config.h` and verifies that starter locomotive images are under `data/images/`.
+
 To publish a prerelease after updating and testing the sources:
 
 ```powershell
@@ -168,8 +167,8 @@ git status
 git add --all
 git commit -m "Prepare DCCExpressLite alpha release"
 git push origin main
-git tag v0.1.0-alpha.6
-git push origin v0.1.0-alpha.6
+git tag v0.1.0-alpha.1
+git push origin v0.1.0-alpha.1
 ```
 
 The tag starts `.github/workflows/release-lite.yml`, which builds the UI from source, creates the firmware assets and merged image, creates the GitHub prerelease, and updates the GitHub Pages web installer.

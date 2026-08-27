@@ -30,8 +30,6 @@ jobs:
           cache-dependency-path: web-ui/package-lock.json
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Generate build configuration
-        run: cp CommandStation-EX/config.example.h CommandStation-EX/config.h
       - name: Generate web UI version metadata
         shell: pwsh
         env:
@@ -49,7 +47,7 @@ jobs:
           pio run -e ESP32 -t buildfs
       - name: Verify embedded starter data
         run: |
-          for file in layout.json locos.json bobo.png csorgo.png szergej.png traxx.png; do
+          for file in layout.json locos.json images/bobo.png images/csorgo.png images/szergej.png images/traxx.png; do
             test -s "data/$file"
           done
       - name: Build firmware release manifest

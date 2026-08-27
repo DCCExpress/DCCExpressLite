@@ -203,7 +203,9 @@ void DCCTimer::DCCEXanalogWriteFrequencyInternal(uint8_t pin, uint32_t frequency
 }
 
 void DCCTimer::DCCEXledcDetachPin(uint8_t pin) {
-  DIAG(F("Clear pin %d channel"), pin);
+#ifdef DIAG_IO
+  DIAG(F("Clear pin %d from ledc channel"), pin);
+#endif
   pin_to_channel[pin] = 0;
   pinMatrixOutDetach(pin, false, false);
 }
@@ -228,7 +230,7 @@ static byte LEDCToMux[] = {
 };
 
 void DCCTimer::DCCEXledcAttachPin(uint8_t pin, int8_t channel, bool inverted) {
-  DIAG(F("Attaching pin %d to channel %d %c"), pin, channel, inverted ? 'I' : ' ');
+  // DIAG(F("Attaching pin %d to channel %d %c"), pin, channel, inverted ? 'I' : ' ');
   ledcAttachPin(pin, channel);
   if (inverted) // we attach again but with inversion
     gpio_matrix_out(pin, LEDCToMux[channel], inverted, 0);
