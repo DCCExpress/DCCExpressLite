@@ -41,7 +41,9 @@ import {
   IconWifi,
   IconX,
   IconDeviceGamepad2,
+  IconCpu,
   IconPower,
+  IconTerminal2,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -62,10 +64,15 @@ import {
   type WsConnectionStatus,
 } from "@/services/wsClient";
 import GamepadPage from "./GamepadPage";
+import DeviceConfigurationPage, {
+  isDeviceConfigurationDocument,
+  type DeviceConfigurationDocument,
+} from "./DeviceConfigurationPage";
 import { useCommandCenter } from "./context/CommandCenterContext";
+import ConsolePage from "./ConsolePage";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-type Page = "home" | "drive" | "layout" | "programming" | "settings" | "gamepad" | "files" | "backup";
+type Page = "home" | "drive" | "layout" | "programming" | "settings" | "device-config" | "gamepad" | "console" | "files" | "backup";
 
 type NetworkSettingsDto = {
   configured: boolean;
@@ -109,7 +116,7 @@ function formatStatus(status: WsConnectionStatus): string {
 
 function pageFromHash(): Page {
   const page = window.location.hash.replace("#", "");
-  return page === "drive" || page === "layout" || page === "programming" || page === "settings" || page === "gamepad" || page === "files" || page === "backup" ? page : "home";
+  return page === "drive" || page === "layout" || page === "programming" || page === "settings" || page === "device-config" || page === "gamepad" || page === "console" || page === "files" || page === "backup" ? page : "home";
 }
 
 function AppHeader({ status, version }: { status: WsConnectionStatus; version: string }) {
@@ -283,6 +290,16 @@ function HomePage({
           </Text>
         </Card>
 
+        <Card className="action-card" withBorder radius={5} p="lg" onClick={() => onNavigate("device-config")}>
+          <ThemeIcon size={48} radius="lg" color="blue" variant="light">
+            <IconCpu size={27} />
+          </ThemeIcon>
+          <Title order={4} mt="md">Device configuration</Title>
+          <Text size="sm" c="dimmed" mt={4}>
+            Configure external servo and input/output devices
+          </Text>
+        </Card>
+
         <Card
           className="action-card"
           withBorder
@@ -321,6 +338,42 @@ function HomePage({
         </Card>
 
 
+        <Card
+          className="action-card"
+          withBorder
+          radius={5}
+          p="lg"
+          onClick={() =>
+            onNavigate("console")
+          }
+        >
+          <ThemeIcon
+            size={48}
+            radius="lg"
+            color="cyan"
+            variant="light"
+          >
+            <IconTerminal2
+              size={27}
+            />
+          </ThemeIcon>
+
+          <Title
+            order={4}
+            mt="md"
+          >
+            Console
+          </Title>
+
+          <Text
+            size="sm"
+            c="dimmed"
+            mt={4}
+          >
+            Send raw DCC-EX commands
+            and inspect WebSocket traffic
+          </Text>
+        </Card>
 
         <Card className="action-card" withBorder radius={5} p="lg" onClick={() => onNavigate("files")}>
           <ThemeIcon size={48} radius="lg" color="orange" variant="light">
@@ -586,6 +639,7 @@ type LiteBackup = {
   locos?: Loco[];
   images?: LocoImageBackup[];
   signalLogic?: SignalLogicDocumentDto;
+  devices?: DeviceConfigurationDocument;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -651,6 +705,18 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
             warnings.push(`signal logic: ${errorMessage(error)}`);
           }
         })(),
+        (async () => {
+          try {
+            const response = await fetch("/api/device-config", { cache: "no-store" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const devices = await response.json() as unknown;
+            if (!isDeviceConfigurationDocument(devices)) throw new Error("invalid response");
+            backup.devices = devices;
+            exported.push(`${devices.devices.length} HAL devices`);
+          } catch (error) {
+            warnings.push(`HAL devices: ${errorMessage(error)}`);
+          }
+        })(),
       ]);
 
       if (exported.length === 0) throw new Error(`No backup data could be read. ${warnings.join("; ")}`);
@@ -690,8 +756,9 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
       const signalLogic = isRecord(parsed.signalLogic) && Array.isArray(parsed.signalLogic.groups)
         ? parsed.signalLogic as SignalLogicDocumentDto
         : null;
-      if (!hasLayout && locos === null && images === null && signalLogic === null) {
-        throw new Error("The file contains no layout, locomotive, image or signal logic data that this release understands.");
+      const devices = isDeviceConfigurationDocument(parsed.devices) ? parsed.devices : null;
+      if (!hasLayout && locos === null && images === null && signalLogic === null && devices === null) {
+        throw new Error("The file contains no layout, locomotive, image, signal logic or HAL device data that this release understands.");
       }
 
       const imported: string[] = [];
@@ -735,6 +802,25 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
         }
       }
 
+      // Device configuration is deliberately restored last because the
+      // firmware restarts shortly after accepting it.
+      if (devices !== null) {
+        try {
+          const response = await fetch("/api/device-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(devices),
+          });
+          if (!response.ok) {
+            const result = await response.json().catch(() => null) as { message?: string } | null;
+            throw new Error(result?.message ?? `HTTP ${response.status}`);
+          }
+          imported.push(`${devices.devices.length} HAL devices (restart scheduled)`);
+        } catch (error) {
+          warnings.push(`HAL devices: ${errorMessage(error)}`);
+        }
+      }
+
       if (imported.length === 0) throw new Error(`No data could be restored. ${warnings.join("; ")}`);
       if (locos !== null) await onDataImported();
       showNotification({
@@ -759,9 +845,9 @@ function BackupPage({ onBack, onDataImported }: { onBack: () => void; onDataImpo
       <Card withBorder radius={5} p="lg">
         <Stack gap="md">
           <div>
-            <Title order={4}>Layout, locomotives, images and signal logic</Title>
+            <Title order={4}>Layout, locomotives, images, signal logic and devices</Title>
             <Text size="sm" c="dimmed" mt={4}>
-              Export the complete layout, locomotive list, locomotive images and signal automation rules into one JSON file, or restore them from an earlier backup.
+              Export the complete layout, locomotive list, images, signal automation rules and HAL device configuration into one JSON file, or restore them from an earlier backup.
             </Text>
           </div>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -1070,6 +1156,8 @@ export default function App() {
 
     if (page === "programming") return <ProgrammingPage onBack={() => navigate("home")} status={status} />;
 
+    if (page === "device-config") return <DeviceConfigurationPage onBack={() => navigate("home")} />;
+
     if (page === "layout") return <LiteLayoutPage version={version} locos={locos} onBack={() => navigate("home")} onOpenLocoEditor={() => setLocoEditorOpened(true)} />;
 
     if (page === "drive") {
@@ -1142,6 +1230,16 @@ export default function App() {
         />
       );
     }
+
+    if (page === "console") {
+  return (
+    <ConsolePage
+      onBack={() =>
+        navigate("home")
+      }
+    />
+  );
+}
 
     return <HomePage status={status} version={version} locoCount={locos.length} onNavigate={navigate} onOpenLocoEditor={() => setLocoEditorOpened(true)} />;
   };

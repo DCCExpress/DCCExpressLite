@@ -1,4 +1,5 @@
 .pio
+CommandStation-EX/CommandStation-EX.ino.cpp
 .codex-build*/
 .device-backup/
 .vscode/.browse.c_cpp.db*

@@ -3,6 +3,7 @@
 #include "DCCEXParser.h"
 #include "DCC.h"
 #include "DCCExpressLite.h"
+#include "DCCExpressLiteDeviceConfig.h"
 #include "DCCExpressLiteRuntimeState.h"
 #include "DCCExpressLiteSignalLogic.h"
 #include "HTTPSerialWrapper.h"
@@ -202,6 +203,9 @@ static File layoutUploadFile;
 static bool layoutUploadOk = false;
 static File locosUploadFile;
 static bool locosUploadOk = false;
+static File deviceConfigUploadFile;
+static bool deviceConfigUploadOk = false;
+static bool deviceConfigUploadTooLarge = false;
 static volatile bool signalLogicReloadPending = false;
 static volatile bool runtimeStatePrunePending = false;
 
@@ -1767,7 +1771,7 @@ void setupHTTPServer()
   }
   lastCpuSampleAtMs = millis();
 
-  if (!LittleFS.begin(true))
+  if (!DCCExpressLiteDeviceConfig::ensureFilesystem())
   {
     Serial.println("LittleFS mount error!");
     return;
@@ -1802,6 +1806,78 @@ void setupHTTPServer()
   httpServer.on("/api/devices", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
                   request->send(200, "application/json", hardwareDevicesJson());
+                });
+
+  httpServer.on("/api/device-config", HTTP_GET, [](AsyncWebServerRequest *request)
+                {
+                  if (!LittleFS.exists(DCCExpressLiteDeviceConfig::CONFIG_PATH))
+                  {
+                    request->send(404, "application/json", "{\"ok\":false,\"message\":\"Device configuration not found.\"}");
+                    return;
+                  }
+                  AsyncWebServerResponse *response = request->beginResponse(
+                    LittleFS, DCCExpressLiteDeviceConfig::CONFIG_PATH, "application/json; charset=utf-8", false);
+                  response->addHeader("Cache-Control", "no-store");
+                  request->send(response);
+                });
+
+  httpServer.on("/api/device-config", HTTP_POST,
+                [](AsyncWebServerRequest *request)
+                {
+                  if (deviceConfigUploadFile)
+                    deviceConfigUploadFile.close();
+
+                  if (!deviceConfigUploadOk)
+                  {
+                    LittleFS.remove(DCCExpressLiteDeviceConfig::TEMP_PATH);
+                    const int status = deviceConfigUploadTooLarge ? 413 : 500;
+                    deviceConfigUploadOk = false;
+                    request->send(status, "application/json",
+                      deviceConfigUploadTooLarge
+                        ? "{\"ok\":false,\"message\":\"Device configuration is too large.\"}"
+                        : "{\"ok\":false,\"message\":\"Device configuration write failed.\"}");
+                    return;
+                  }
+
+                  String error;
+                  if (!DCCExpressLiteDeviceConfig::validateAndCommit(DCCExpressLiteDeviceConfig::TEMP_PATH, error))
+                  {
+                    LittleFS.remove(DCCExpressLiteDeviceConfig::TEMP_PATH);
+                    deviceConfigUploadOk = false;
+                    request->send(400, "application/json",
+                      "{\"ok\":false,\"message\":\"" + escapeJson(error) + "\"}");
+                    return;
+                  }
+
+                  request->send(200, "application/json",
+                    "{\"ok\":true,\"message\":\"Device configuration saved. Device is restarting.\"}");
+                  deviceConfigUploadOk = false;
+                  scheduleRestart();
+                },
+                nullptr,
+                [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
+                {
+                  (void)request;
+                  if (index == 0)
+                  {
+                    if (deviceConfigUploadFile)
+                      deviceConfigUploadFile.close();
+                    LittleFS.remove(DCCExpressLiteDeviceConfig::TEMP_PATH);
+                    deviceConfigUploadTooLarge = total > DCCExpressLiteDeviceConfig::MAX_CONFIG_BYTES;
+                    deviceConfigUploadFile = deviceConfigUploadTooLarge
+                      ? File()
+                      : LittleFS.open(DCCExpressLiteDeviceConfig::TEMP_PATH, "w");
+                    deviceConfigUploadOk = !deviceConfigUploadTooLarge && (bool)deviceConfigUploadFile;
+                  }
+
+                  if (deviceConfigUploadOk && len && deviceConfigUploadFile.write(data, len) != len)
+                    deviceConfigUploadOk = false;
+
+                  if (index + len == total && deviceConfigUploadFile)
+                  {
+                    deviceConfigUploadFile.flush();
+                    deviceConfigUploadFile.close();
+                  }
                 });
 
   httpServer.on("/api/settings/network", HTTP_POST, [](AsyncWebServerRequest *request)

@@ -47,7 +47,7 @@ jobs:
           pio run -e ESP32 -t buildfs
       - name: Verify embedded starter data
         run: |
-          for file in layout.json locos.json signal-rules.json images/bobo.png images/csorgo.png images/szergej.png images/traxx.png; do
+          for file in layout.json locos.json signal-rules.json devices.json images/bobo.png images/csorgo.png images/szergej.png images/traxx.png; do
             test -s "data/$file"
           done
       - name: Build merged firmware

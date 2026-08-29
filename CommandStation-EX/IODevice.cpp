@@ -33,6 +33,7 @@
 
 // Link to halSetup function.  If not defined, the function reference will be NULL.
 extern __attribute__((weak)) void halSetup();
+extern __attribute__((weak)) bool dccExpressLiteHalSetup();
 extern __attribute__((weak)) bool exrailHalSetup1();
 extern __attribute__((weak)) bool exrailHalSetup2();
 
@@ -70,8 +71,10 @@ void IODevice::begin() {
   // If it returns true, then the default HAL devices will not be created.
 
   bool ignoreDefaults=false;
+  if (dccExpressLiteHalSetup)
+    ignoreDefaults=dccExpressLiteHalSetup();
   if (exrailHalSetup1)
-    ignoreDefaults=exrailHalSetup1();
+    ignoreDefaults=exrailHalSetup1() || ignoreDefaults;
   
   if (!ignoreDefaults) {
   

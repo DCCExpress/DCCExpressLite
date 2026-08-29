@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "devices": [
+    {
+      "id": "pca9685-40",
+      "name": "PCA9685 0x40",
+      "type": "pca9685",
+      "enabled": true,
+      "address": 64,
+      "firstVpin": 100,
+      "pinCount": 16,
+      "frequency": 50
+    },
+    {
+      "id": "pca9685-41",
+      "name": "PCA9685 0x41",
+      "type": "pca9685",
+      "enabled": true,
+      "address": 65,
+      "firstVpin": 116,
+      "pinCount": 16,
+      "frequency": 50
+    },
+    {
+      "id": "mcp23017-20",
+      "name": "MCP23017 0x20",
+      "type": "mcp23017",
+      "enabled": true,
+      "address": 32,
+      "firstVpin": 164,
+      "pinCount": 16,
+      "interruptPin": null
+    },
+    {
+      "id": "mcp23017-21",
+      "name": "MCP23017 0x21",
+      "type": "mcp23017",
+      "enabled": true,
+      "address": 33,
+      "firstVpin": 180,
+      "pinCount": 16,
+      "interruptPin": null
+    }
+  ]
+}

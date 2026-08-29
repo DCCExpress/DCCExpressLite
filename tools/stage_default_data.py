@@ -10,6 +10,7 @@ data_dir = project_dir / "data"
 starter_files = (
     "layout.json",
     "locos.json",
+    "devices.json",
 )
 
 starter_images = (

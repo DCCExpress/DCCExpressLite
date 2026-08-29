@@ -2,6 +2,17 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## 0.1.0-alpha.5 - 2026-08-29
+
+- Added persistent dynamic DCC-EX HAL configuration for PCA9685 servo controllers and MCP23017/PCF8574 input/output expanders.
+- Added boot-time HAL device creation from `/devices.json`, with validation, VPIN and I2C-address conflict detection, atomic saves and safe fallback to the upstream default device map.
+- Added a Device Configuration page with add, edit, enable, delete, I2C scan and Apply & Restart controls.
+- Included HAL device configuration in release starter data and release-independent Export/Import backups.
+- Added a Console page for raw DCC-EX commands, WebSocket traffic and supported browser serial connections.
+- Added a reusable bit calculator to signal aspect value editing.
+- Fixed a Device Configuration crash when editing text and switch fields in React concurrent rendering.
+- Documented the small upstream IODevice startup hook used by the dynamic device loader.
+
 ## 0.1.0-alpha.4 - 2026-08-29
 
 - Added persistent block occupancy: a locomotive can be assigned to a layout block, moved between blocks, or removed from a block.
