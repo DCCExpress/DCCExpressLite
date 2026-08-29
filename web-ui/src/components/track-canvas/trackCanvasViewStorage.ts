@@ -3,13 +3,13 @@ import type {
   ViewState,
 } from "./TrackCanvas.types";
 
-const VIEW_STORAGE_KEY =
+const DEFAULT_VIEW_STORAGE_KEY =
   "dcc-express.editor.trackCanvas.view";
 
 const SAVE_DEBOUNCE_MS = 250;
 
-let pendingViewState: ViewState | null = null;
-let saveTimer: number | null = null;
+const pendingViewStates = new Map<string, ViewState>();
+const saveTimers = new Map<string, number>();
 let pageHideFlushRegistered = false;
 
 function clamp(
@@ -24,11 +24,12 @@ function clamp(
 }
 
 function writeViewState(
-  view: ViewState
+  view: ViewState,
+  storageKey: string
 ): void {
   try {
     localStorage.setItem(
-      VIEW_STORAGE_KEY,
+      storageKey,
       JSON.stringify(view)
     );
   } catch {
@@ -48,10 +49,12 @@ function ensurePageHideFlushRegistered(): void {
   pageHideFlushRegistered = true;
 }
 
-export function loadSavedViewState(): ViewState {
+export function loadSavedViewState(
+  storageKey = DEFAULT_VIEW_STORAGE_KEY
+): ViewState {
   try {
     const raw =
-      localStorage.getItem(VIEW_STORAGE_KEY);
+      localStorage.getItem(storageKey);
 
     if (!raw) {
       return {
@@ -91,36 +94,41 @@ export function loadSavedViewState(): ViewState {
 }
 
 export function saveViewState(
-  view: ViewState
+  view: ViewState,
+  storageKey = DEFAULT_VIEW_STORAGE_KEY
 ): void {
   ensurePageHideFlushRegistered();
 
-  pendingViewState = {
+  pendingViewStates.set(storageKey, {
     ...view,
-  };
+  });
 
-  if (saveTimer !== null) {
-    window.clearTimeout(saveTimer);
+  const previousTimer = saveTimers.get(storageKey);
+  if (previousTimer !== undefined) {
+    window.clearTimeout(previousTimer);
   }
 
-  saveTimer = window.setTimeout(() => {
-    if (pendingViewState) {
-      writeViewState(pendingViewState);
-      pendingViewState = null;
+  const timer = window.setTimeout(() => {
+    const pending = pendingViewStates.get(storageKey);
+    if (pending) {
+      writeViewState(pending, storageKey);
+      pendingViewStates.delete(storageKey);
     }
 
-    saveTimer = null;
+    saveTimers.delete(storageKey);
   }, SAVE_DEBOUNCE_MS);
+
+  saveTimers.set(storageKey, timer);
 }
 
 export function flushSavedViewState(): void {
-  if (saveTimer !== null) {
-    window.clearTimeout(saveTimer);
-    saveTimer = null;
+  for (const timer of saveTimers.values()) {
+    window.clearTimeout(timer);
   }
+  saveTimers.clear();
 
-  if (pendingViewState) {
-    writeViewState(pendingViewState);
-    pendingViewState = null;
+  for (const [storageKey, view] of pendingViewStates) {
+    writeViewState(view, storageKey);
   }
+  pendingViewStates.clear();
 }

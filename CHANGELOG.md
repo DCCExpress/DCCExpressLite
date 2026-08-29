@@ -2,6 +2,20 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## 0.1.0-alpha.4 - 2026-08-29
+
+- Added persistent block occupancy: a locomotive can be assigned to a layout block, moved between blocks, or removed from a block.
+- Added `/runtime-state.json` storage for block assignments and cached turnout states, with delayed LittleFS writes, startup restore, stale-block cleanup, and multi-client WebSocket synchronization.
+- Made the upstream DCC-EX/WiThrottle TCP listener on port 2560 compile-time optional and disabled it in the Lite configuration while retaining Wi-Fi and the Lite HTTP/WebSocket API.
+- Added a Gamepad page for Bluetooth/USB controller diagnostics and per-button locomotive-control assignments.
+- Added client-local gamepad mapping, reset-to-defaults, multiple-controller selection, and restoration of the selected controller after a page reload.
+- Prevented another connected gamepad from silently taking control when the selected controller disconnects.
+- Improved the Mobile Controller layout for portrait and landscape phones and kept the runtime layout warm in the background for faster opening.
+- Preserved the Mobile Controller layout zoom and position per browser, while retaining Center and Fit controls.
+- Fixed route-progress overlay pointer handling so its emergency-stop button cannot be activated by the pointer event that opened the overlay.
+- Added a convenient reload button to the home-page header and improved narrow-screen status/version wrapping.
+- Removed private development-machine paths from public documentation and deployment examples.
+
 ## 0.1.0-alpha.3 - 2026-08-27
 
 - Added locomotive, accessory and DigiTools decoder programming from the embedded UI.

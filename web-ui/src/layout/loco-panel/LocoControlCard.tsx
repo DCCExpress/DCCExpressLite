@@ -63,7 +63,7 @@ export default function LocoControlCard({
       : theme.colors.blue[8];
 
   return (
-    <Card withBorder radius="sm" p="xs">
+    <Card withBorder radius="sm" p="0">
       <Stack align="center" gap={0}>
         <LocoImage
           locoId={loco.id}
@@ -82,7 +82,7 @@ export default function LocoControlCard({
           {loco.name || t("loco.unnamed")}
         </Text>
 
-        {(reservation) && (
+        {/* {(reservation) && (
           <Badge
             color="orange"
             variant="light"
@@ -96,16 +96,16 @@ export default function LocoControlCard({
           >
             Foglalt: {reservation.ownerName ?? reservation.ownerId}
           </Badge>
-        )}
+        )} */}
 
         <Badge
           radius={4}
           m={4}
-          size="xl"
+          size="xs"
           w={120}
           h="auto"
           px="md"
-          py={6}
+          py={2}
           styles={{
             root: {
               backgroundColor: badgeBg,

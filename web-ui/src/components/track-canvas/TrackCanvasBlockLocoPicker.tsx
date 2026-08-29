@@ -36,6 +36,9 @@ export function TrackCanvasBlockLocoPicker({
       opened={opened}
       locos={locos}
       selectedLocoId={selectedLocoId}
+      title={selectedBlock?.name && selectedBlock.name !== "element"
+        ? `Block: ${selectedBlock.name}`
+        : "Assign locomotive to block"}
       onClose={onClose}
       onSelect={(loco) => {
         if (!selectedBlock) {
@@ -44,7 +47,8 @@ export function TrackCanvasBlockLocoPicker({
 
         wsApi.setBlock(
           selectedBlock.id,
-          loco.id
+          loco.id,
+          loco.address
         );
 
         onClose();
@@ -62,14 +66,6 @@ export function TrackCanvasBlockLocoPicker({
           locoId
         );
 
-        onClose();
-      }}
-      onRemoveAllLoco={() => {
-        if (!selectedBlock) {
-          return;
-        }
-
-        wsApi.setBlocksReset();
         onClose();
       }}
     />

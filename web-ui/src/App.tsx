@@ -40,6 +40,8 @@ import {
   IconUpload,
   IconWifi,
   IconX,
+  IconDeviceGamepad2,
+  IconPower,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -59,9 +61,11 @@ import {
   wsClient,
   type WsConnectionStatus,
 } from "@/services/wsClient";
+import GamepadPage from "./GamepadPage";
+import { useCommandCenter } from "./context/CommandCenterContext";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-type Page = "home" | "drive" | "layout" | "programming" | "settings" | "files" | "backup";
+type Page = "home" | "drive" | "layout" | "programming" | "settings" | "gamepad" | "files" | "backup";
 
 type NetworkSettingsDto = {
   configured: boolean;
@@ -105,34 +109,88 @@ function formatStatus(status: WsConnectionStatus): string {
 
 function pageFromHash(): Page {
   const page = window.location.hash.replace("#", "");
-  return page === "drive" || page === "layout" || page === "programming" || page === "settings" || page === "files" || page === "backup" ? page : "home";
+  return page === "drive" || page === "layout" || page === "programming" || page === "settings" || page === "gamepad" || page === "files" || page === "backup" ? page : "home";
 }
 
 function AppHeader({ status, version }: { status: WsConnectionStatus; version: string }) {
+
+  const commandCenter = useCommandCenter();
   return (
-    <Group justify="space-between" align="center" wrap="nowrap">
-      <Group gap="sm" wrap="nowrap">
+    <Group
+      className="app-header"
+      justify="space-between"
+      align="center"
+      wrap="wrap"
+    >
+      <Group
+        className="app-header-main"
+        gap="sm"
+        wrap="nowrap"
+      >
         <ThemeIcon size={44} radius="md" variant="gradient" gradient={{ from: "cyan", to: "blue" }}>
           <IconTrain size={25} />
         </ThemeIcon>
         <div>
           <Title order={3}>DCCExpress Lite</Title>
-          <Group gap={6} wrap="nowrap">
+          <Group
+            className="app-header-meta"
+            gap={6}
+            wrap="wrap"
+          >
             <Text size="xs" c="dimmed">EX-CSB1 command station</Text>
-            <Badge size="xs" variant="light" color="violet">v{version}</Badge>
+            <Badge
+              className="app-version-badge"
+              size="xs"
+              variant="light"
+              color="violet"
+            >
+              v{version}
+            </Badge>
           </Group>
         </div>
       </Group>
 
-      <Badge
-        color={statusColor(status)}
-        variant={status === "connected" ? "light" : "filled"}
-        size="lg"
-        className={status === "connected" ? "" : "lite-ws-alert"}
+      <Group
+        className="app-header-actions"
+        gap="xs"
+        wrap="nowrap"
       >
-        {formatStatus(status)}
-      </Badge>
+        <Badge
+          color={statusColor(status)}
+          variant={status === "connected" ? "light" : "filled"}
+          size="lg"
+          className={status === "connected" ? "" : "lite-ws-alert"}
+        >
+          {formatStatus(status)}
+        </Badge>
+
+        <ActionIcon
+          size="lg"
+          radius="xl"
+          variant="light"
+          color="cyan"
+          aria-label="Reload page"
+          title="Reload page"
+          onClick={() => window.location.reload()}
+        >
+          <IconRefresh size={20} />
+        </ActionIcon>
+      </Group>
+
+      <Button
+        size="xs"
+        variant={commandCenter.powerInfo?.trackVoltageOn ? "filled" : "light"}
+        color={commandCenter.powerInfo?.trackVoltageOn ? "green" : "red"}
+        leftSection={<IconPower size={16} />}
+        disabled={status !== "connected" || !commandCenter.alive}
+        onClick={() => wsApi.setTrackPower(!commandCenter.powerInfo?.trackVoltageOn)}
+        title={commandCenter.powerInfo?.trackVoltageOn ? "Turn track power off" : "Turn track power on"}
+      >
+        POWER {commandCenter.powerInfo?.trackVoltageOn ? "ON" : "OFF"}
+      </Button>
+
     </Group>
+
   );
 }
 
@@ -224,6 +282,45 @@ function HomePage({
             Join the EX-CSB1 to your local Wi-Fi network
           </Text>
         </Card>
+
+        <Card
+          className="action-card"
+          withBorder
+          radius={5}
+          p="lg"
+          onClick={() =>
+            onNavigate("gamepad")
+          }
+        >
+          <ThemeIcon
+            size={48}
+            radius="lg"
+            color="grape"
+            variant="light"
+          >
+            <IconDeviceGamepad2
+              size={27}
+            />
+          </ThemeIcon>
+
+          <Title
+            order={4}
+            mt="md"
+          >
+            Gamepad
+          </Title>
+
+          <Text
+            size="sm"
+            c="dimmed"
+            mt={4}
+          >
+            Test Bluetooth and USB
+            game controllers
+          </Text>
+        </Card>
+
+
 
         <Card className="action-card" withBorder radius={5} p="lg" onClick={() => onNavigate("files")}>
           <ThemeIcon size={48} radius="lg" color="orange" variant="light">
@@ -977,9 +1074,12 @@ export default function App() {
 
     if (page === "drive") {
       return (
-        <Stack gap="md">
-          {driveLayoutOpen && <RuntimeLayoutOverlay locos={locos} />}
-          <Card withBorder radius="lg" p="sm">
+        <Stack className="mobile-drive-page" gap="md">
+          <RuntimeLayoutOverlay
+            locos={locos}
+            open={driveLayoutOpen}
+          />
+          {/* <Card withBorder radius="lg" p="sm">
             <Group justify="space-between" align="center" wrap="nowrap">
               <Group gap="xs" wrap="nowrap">
                 <ActionIcon variant="subtle" color="gray" size="lg" aria-label="Back to home" onClick={() => navigate("home")}>
@@ -995,11 +1095,26 @@ export default function App() {
                 )}
               </Group>
             </Group>
-          </Card>
+          </Card> */}
+
+          <ActionIcon
+            className="mobile-back-fab"
+            size={46}
+            radius="xl"
+            variant="filled"
+            color="dark"
+            aria-label="Back to home"
+            title="Back to home"
+            onClick={() => navigate("home")}
+          >
+            <IconArrowLeft size={24} />
+          </ActionIcon>
           {loadState === "loading" && locos.length === 0 ? (
             <Card withBorder radius="xl" p="xl"><Stack align="center"><Loader /><Text c="dimmed">Loading locomotives…</Text></Stack></Card>
           ) : (
-            <Box className="mobile-loco-panel"><LocoPanel locos={locos} /></Box>
+            <Box className="mobile-loco-panel">
+              <LocoPanel locos={locos} mobileViewport />
+            </Box>
           )}
           {loadState === "error" && (
             <Button variant="light" leftSection={<IconRefresh size={16} />} onClick={() => void loadLocos()}>Retry loading locomotives</Button>
@@ -1020,11 +1135,27 @@ export default function App() {
       );
     }
 
+    if (page === "gamepad") {
+      return (
+        <GamepadPage
+          onBack={() => navigate("home")}
+        />
+      );
+    }
+
     return <HomePage status={status} version={version} locoCount={locos.length} onNavigate={navigate} onOpenLocoEditor={() => setLocoEditorOpened(true)} />;
   };
 
   return (
-    <Box className={`mobile-shell${page === "layout" ? " layout-shell" : ""}`}>
+    // <Box className={`mobile-shell${page === "layout" ? " layout-shell" : ""}`}>
+    <Box
+      className={`mobile-shell${page === "layout" ? " layout-shell" : ""
+        }${page === "drive" ? " drive-shell" : ""
+        }`}
+    >
+
+
+
       <Stack gap="md">
         <Box className="mobile-content">{renderPage()}</Box>
       </Stack>

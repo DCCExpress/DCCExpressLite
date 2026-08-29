@@ -31,7 +31,7 @@ export default function LocoDirectionControls({
   return (
     <Group grow gap={4} w="100%">
       <Button
-        size="xs"
+        size="md"
         variant={
           direction === "reverse"
             ? "filled"
@@ -47,7 +47,7 @@ export default function LocoDirectionControls({
       </Button>
 
       <Button
-        size="xs"
+        size="md"
         variant={speed > 0 ? "light" : "filled"}
         color="yellow"
         disabled={disabled}
@@ -60,7 +60,7 @@ export default function LocoDirectionControls({
       </Button>
 
       <Button
-        size="xs"
+        size="md"
         variant={
           direction === "forward"
             ? "filled"

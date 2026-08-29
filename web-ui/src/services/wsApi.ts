@@ -255,8 +255,12 @@ class WebSocketApi {
     );
   }
 
-  setBlock(blockId: string, locoId: string | null): boolean {
-    return this.send("setBlock", { blockId, locoId });
+  setBlock(blockId: string, locoId: string | null, locoAddress?: number): boolean {
+    return this.send("setBlock", {
+      blockId,
+      locoId,
+      ...(locoAddress === undefined ? {} : { locoAddress }),
+    });
   }
 
   setBlockRemove(blockId: string, locoId: string | null): boolean {

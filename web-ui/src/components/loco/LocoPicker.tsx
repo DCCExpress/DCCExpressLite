@@ -20,6 +20,7 @@ export default function LocoPicker({
     opened,
     locos,
     selectedLocoId,
+    title,
 
     onClose,
     onSelect,
@@ -67,7 +68,7 @@ export default function LocoPicker({
                 }}
             >
                 <Group justify="space-between" mb="sm" style={{ flexShrink: 0 }}>
-                    {/* <Text fw={700}>{title}</Text> */}
+                    <Text fw={700}>{title ?? t("loco.selectLoco")}</Text>
 
                     {onRemoveLoco && (
                         <Button

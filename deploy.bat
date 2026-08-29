@@ -4,8 +4,7 @@ title DCCExpressLite Deploy
 
 REM ============================================================
 REM DCCExpressLite - local build + ESP32 deploy
-REM Place this file in the repository root:
-REM C:\ChatGPT\GitRepo\DCCExpressLite\deploy.bat
+REM Place this file in the DCCExpressLite repository root.
 REM
 REM Optional:
 REM   deploy.bat COM5
@@ -15,10 +14,6 @@ REM ============================================================
 set "PROJECT_DIR=%~dp0"
 set "WEBUI_DIR=%PROJECT_DIR%web-ui"
 set "PIO_ENV=ESP32"
-
-REM PowerShell equivalent:
-REM $env:Path += ";C:\Users\junge\.platformio\penv\Scripts"
-set "PATH=%PATH%;C:\Users\junge\.platformio\penv\Scripts"
 
 set "UPLOAD_PORT="
 if not "%~1"=="" set "UPLOAD_PORT=--upload-port %~1"
@@ -44,11 +39,10 @@ if errorlevel 1 (
     goto :fail
 )
 
-where platformio.exe >nul 2>&1
+where pio.exe >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] platformio.exe not found.
-    echo Expected:
-    echo C:\Users\junge\.platformio\penv\Scripts\platformio.exe
+    echo [ERROR] PlatformIO CLI ^(pio^) not found in PATH.
+    echo Install PlatformIO Core or add its CLI directory to PATH.
     goto :fail
 )
 

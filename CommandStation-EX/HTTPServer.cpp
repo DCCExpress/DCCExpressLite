@@ -3,6 +3,7 @@
 #include "DCCEXParser.h"
 #include "DCC.h"
 #include "DCCExpressLite.h"
+#include "DCCExpressLiteRuntimeState.h"
 #include "DCCExpressLiteSignalLogic.h"
 #include "HTTPSerialWrapper.h"
 #include "HTTPServer.h"
@@ -202,6 +203,7 @@ static bool layoutUploadOk = false;
 static File locosUploadFile;
 static bool locosUploadOk = false;
 static volatile bool signalLogicReloadPending = false;
+static volatile bool runtimeStatePrunePending = false;
 
 struct ProgrammingRequestState
 {
@@ -694,6 +696,13 @@ static void sendAccessorySnapshot(uint32_t clientId, int address)
   }
 }
 
+static void sendBlockState(uint32_t clientId = 0)
+{
+  const String data = DCCExpressLiteRuntimeState::blockStateJson();
+  if (clientId) sendToClient(clientId, "blockStateChanged", data);
+  else broadcastMessage("blockStateChanged", data);
+}
+
 static void startInitialSnapshots(uint32_t clientId)
 {
   for (ClientSnapshotState &snapshot : clientSnapshots)
@@ -759,6 +768,10 @@ static void processInitialSnapshots()
           "{\"uptimeMs\":" + String(millis()) +
           ",\"wsClients\":" + String(connectedClientCount) +
           ",\"queueLength\":" + String(wsInboundLength()) + "}");
+        ++snapshot.stage;
+        break;
+      case 7:
+        sendBlockState(snapshot.clientId);
         ++snapshot.stage;
         break;
       default:
@@ -1030,6 +1043,16 @@ static uint8_t countLayoutElementsById(JsonDocument &layout, const char *id, con
         if (layoutTypeMatches(element["type"] | "", expectedType)) ++matchingTypeCount;
       }
   return totalCount == 1 && matchingTypeCount == 1 ? 1 : (totalCount ? 2 : 0);
+}
+
+static bool isValidLayoutBlockId(const char *blockId)
+{
+  File file = LittleFS.open("/layout.json", "r");
+  if (!file) return false;
+  JsonDocument layout;
+  const DeserializationError error = deserializeJson(layout, file);
+  file.close();
+  return !error && countLayoutElementsById(layout, blockId, "trackblock") == 1;
 }
 
 static bool validateSignalLogicLimits(JsonVariantConst document, String &message)
@@ -1348,8 +1371,49 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 
     dccParseRaw("<a " + String(address) + " " + String(closed ? 1 : 0) + ">");
     turnoutStateCache[address] = closed ? 1 : 0;
+    DCCExpressLiteRuntimeState::setTurnout(address, closed);
     DCCExpressLiteSignalLogic::notifyTurnout(address, closed);
     broadcastMessage("turnoutChanged", "{\"address\":" + String(address) + ",\"closed\":" + String(closed ? "true" : "false") + "}", uuid);
+    return;
+  }
+
+  if (type == "setBlock")
+  {
+    const String blockId = payload["blockId"] | "";
+    const int locoAddress = getInt(payload["locoAddress"]);
+    if (!isValidLayoutBlockId(blockId.c_str()) ||
+        !DCCExpressLiteRuntimeState::setBlock(blockId.c_str(), locoAddress))
+    {
+      sendError(clientId, "invalid_block_or_locomotive", uuid);
+      return;
+    }
+    sendBlockState();
+    return;
+  }
+
+  if (type == "setBlockRemove")
+  {
+    const String blockId = payload["blockId"] | "";
+    if (!isValidLayoutBlockId(blockId.c_str()) ||
+        !DCCExpressLiteRuntimeState::removeBlock(blockId.c_str()))
+    {
+      sendError(clientId, "invalid_block", uuid);
+      return;
+    }
+    sendBlockState();
+    return;
+  }
+
+  if (type == "setBlocksReset")
+  {
+    DCCExpressLiteRuntimeState::resetBlocks();
+    sendBlockState();
+    return;
+  }
+
+  if (type == "getBlocks")
+  {
+    sendBlockState(clientId);
     return;
   }
 
@@ -1714,6 +1778,12 @@ void setupHTTPServer()
 
   Serial.println("LittleFS started!");
   LCD(4, F("HTTP: FS OK"));
+  DCCExpressLiteRuntimeState::begin();
+  for (int address = 1; address <= MAX_LINEAR_ACCESSORY_ADDRESS; ++address)
+  {
+    const int8_t state = DCCExpressLiteRuntimeState::getTurnout(address);
+    if (state >= 0) turnoutStateCache[address] = state;
+  }
   loadLocoConfiguration();
   DCCExpressLiteSignalLogic::begin(readTurnoutStateForSignalLogic, writeBasicAccessoryState);
 
@@ -1805,7 +1875,11 @@ void setupHTTPServer()
                   LittleFS.remove("/layout.json");
                   const bool renamed = LittleFS.rename("/layout.tmp", "/layout.json");
                   layoutUploadOk = false;
-                  if (renamed) signalLogicReloadPending = true;
+                  if (renamed)
+                  {
+                    signalLogicReloadPending = true;
+                    runtimeStatePrunePending = true;
+                  }
                   request->send(renamed ? 200 : 500, "application/json",
                     renamed
                       ? "{\"ok\":true,\"message\":\"Layout saved.\"}"
@@ -2181,7 +2255,14 @@ void loopHTTPServer()
     signalLogicReloadPending = false;
     DCCExpressLiteSignalLogic::reload();
   }
+  if (runtimeStatePrunePending)
+  {
+    runtimeStatePrunePending = false;
+    DCCExpressLiteRuntimeState::pruneBlocksFromLayout();
+    sendBlockState();
+  }
   DCCExpressLiteSignalLogic::loop();
+  DCCExpressLiteRuntimeState::loop();
   flushPendingWsMessages();
   processInitialSnapshots();
 

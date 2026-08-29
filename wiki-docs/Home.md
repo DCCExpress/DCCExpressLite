@@ -11,13 +11,16 @@ DCCExpressLite is a self-contained browser controller for the **EX-CSB1** comman
 3. [Configure turnouts and routes](Turnouts-and-Routes)
 4. [Configure signals and automation](Signals-and-Automation)
 5. [Drive locomotives](Locomotives-and-Mobile-Control)
-6. [Back up your data](Files-Backup-and-Restore)
+6. [Configure a gamepad](Gamepad-Control)
+7. [Back up your data](Files-Backup-and-Restore)
 
 ## Main features
 
 - Responsive desktop, tablet, and mobile UI
 - Locomotive control, functions, direction inversion, images, and emergency stop
+- Configurable Bluetooth/USB gamepad control with client-local mappings
 - Visual layout editor with persistent client-side zoom and position
+- Persistent block occupancy shared between connected clients
 - Physical DCC accessory turnout control
 - Basic route buttons and automatic block-to-block routes
 - ID-based signal automation driven by turnouts and sensors
@@ -27,4 +30,3 @@ DCCExpressLite is a self-contained browser controller for the **EX-CSB1** comman
 - WebSocket reconnect, multi-client support, diagnostics, and integrity checking
 
 The **HELP** button in the Layout Editor always opens this Wiki.
-

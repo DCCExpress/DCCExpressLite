@@ -12,14 +12,24 @@ import { isTurnoutElement, LayoutView } from "@/models/editor/core/LayoutView";
 import { TrackLevelCrossingElementView } from "@/models/editor/elements/TrackLevelCrossingElementView";
 import { TrackSensorElementView } from "@/models/editor/elements/TrackSensorElementView";
 import { TrackSignalElementView } from "@/models/editor/elements/TrackSignalElementView";
+import { BlockElementView } from "@/models/editor/elements/BlockElementView";
 import TrackTurnoutDoubleElementView from "@/models/editor/elements/TrackTurnoutDoubleElementView";
+import { getCanvasImage } from "@/models/editor/rendering/ImageCache";
 import type { EditorTool } from "@/models/editor/types/EditorTypes";
 import { wsApi } from "@/services/wsApi";
 import { wsClient, type WsConnectionStatus } from "@/services/wsClient";
 
 const CURSOR_TOOL: EditorTool = { mode: "cursor", elementType: "general" };
 
-export default function RuntimeLayoutOverlay({ locos }: { locos: Loco[] }) {
+type RuntimeLayoutOverlayProps = {
+  locos: Loco[];
+  open: boolean;
+};
+
+export default function RuntimeLayoutOverlay({
+  locos,
+  open,
+}: RuntimeLayoutOverlayProps) {
   const commandCenter = useCommandCenter();
   const [layout, setLayout] = useState(() => new LayoutView());
   const [selectedElement, setSelectedElement] = useState<BaseElementView | null>(null);
@@ -62,6 +72,12 @@ export default function RuntimeLayoutOverlay({ locos }: { locos: Loco[] }) {
 
   useEffect(() => wsClient.subscribeStatus(setWsStatus), []);
 
+  useEffect(() => {
+    for (const loco of locos) {
+      if (loco.image) getCanvasImage(loco.image);
+    }
+  }, [locos]);
+
   useEffect(() => wsClient.on("error", data => {
     if (data.message === "track_power_off") {
       showNotification({ color: "red", title: "Track power is off", message: "Turn POWER ON before operating a turnout." });
@@ -101,21 +117,78 @@ export default function RuntimeLayoutOverlay({ locos }: { locos: Loco[] }) {
     invalidate();
   }), [layout, invalidate]);
 
+  useEffect(() => wsClient.on("blockStateChanged", data => {
+    const blocks = layout.getAllElements().filter(
+      (element): element is BlockElementView =>
+        element instanceof BlockElementView,
+    );
+
+    for (const block of blocks) {
+      block.locoAddress = 0;
+    }
+
+    for (const [blockId, state] of Object.entries(data)) {
+      const block = blocks.find(item => item.id === blockId);
+      if (!block) continue;
+
+      block.locoAddress = state.locoAddress ??
+        locos.find(loco => loco.id === state.locoId)?.address ??
+        0;
+    }
+
+    invalidate();
+  }), [layout, locos, invalidate]);
+
   useEffect(() => {
     if (wsStatus === "connected") wsApi.getLayoutRuntimeSnapshot();
   }, [wsStatus, layout]);
 
+  useEffect(() => {
+    if (!open || loading || error) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      invalidate();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, loading, error, invalidate]);
+
+  useEffect(() => {
+    if (open) return;
+    setFitCounter(0);
+    setCenterCounter(0);
+  }, [open]);
+
+  // Keep the parsed layout and all realtime subscriptions alive while the
+  // panel is closed, but do not keep an invisible canvas rendering on mobile.
+  if (!open) return null;
+
   if (loading) {
-    return <Center className="mobile-runtime-layout-overlay"><Loader /></Center>;
+    return (
+      <Center
+        className="mobile-runtime-layout-overlay"
+      >
+        <Loader />
+      </Center>
+    );
   }
 
   if (error) {
-    return <Box className="mobile-runtime-layout-overlay" p="md"><Alert color="red">{error}</Alert></Box>;
+    return (
+      <Box
+        className="mobile-runtime-layout-overlay"
+        p="md"
+      >
+        <Alert color="red">{error}</Alert>
+      </Box>
+    );
   }
 
   return (
     <>
-      <Box className="mobile-runtime-layout-overlay">
+      <Box
+        className="mobile-runtime-layout-overlay"
+      >
         <Box className="mobile-runtime-layout-canvas">
           <TrackCanvas
             editMode={false}
@@ -128,13 +201,14 @@ export default function RuntimeLayoutOverlay({ locos }: { locos: Loco[] }) {
             onInvalidate={invalidate}
             fitCounter={fitCounter}
             centerCounter={centerCounter}
+            viewStorageKey="dcc-express.mobile.trackCanvas.view"
             turnoutSelectionMode={false}
             setBusy={setBusy}
             locos={locos}
           />
         </Box>
       </Box>
-      <Group className="mobile-layout-tools" gap="xs" wrap="nowrap">
+      {open && <Group className="mobile-layout-tools" gap="xs" wrap="nowrap">
         <ActionIcon
           size={52}
           radius="xl"
@@ -169,8 +243,8 @@ export default function RuntimeLayoutOverlay({ locos }: { locos: Loco[] }) {
         >
           <IconPlayerStop size={27} />
         </ActionIcon>
-      </Group>
-      <FullscreenLoader visible={canvasBusy} text={canvasBusyText} />
+      </Group>}
+      <FullscreenLoader visible={open && canvasBusy} text={canvasBusyText} />
     </>
   );
 }

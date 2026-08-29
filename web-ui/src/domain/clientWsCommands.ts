@@ -100,6 +100,7 @@ export type SetBasicAccessoryCommandPayload = {
 export type SetBlockCommandPayload = {
   blockId: string;
   locoId: string | null;
+  locoAddress?: number;
 };
 
 export type SetBlockRemoveCommandPayload =

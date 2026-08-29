@@ -58,6 +58,7 @@ import { TrackCrossingElementView } from "@/models/editor/elements/TrackCrossing
 import { TrackCurveElementView } from "@/models/editor/elements/TrackCurveElementView";
 import { TrackEndElementView } from "@/models/editor/elements/TrackEndElementView";
 import { TrackLevelCrossingElementView } from "@/models/editor/elements/TrackLevelCrossingElementView";
+import { BlockElementView } from "@/models/editor/elements/BlockElementView";
 import { TrackSensorElementView } from "@/models/editor/elements/TrackSensorElementView";
 import { TrackSignalElementView } from "@/models/editor/elements/TrackSignalElementView";
 import type { IEditableProperty } from "@/models/editor/elements/PropertyDescriptor";
@@ -141,6 +142,7 @@ const PICKER_ITEMS: PickerItem[] = [
   { type: ELEMENT_TYPES.TRACK_TURNOUT_RIGHT, label: "Right turnout", preview: new TrackTurnoutRightElementView(0, 0) },
   { type: ELEMENT_TYPES.TRACK_TURNOUT_DOUBLE, label: "Double turnout", preview: new TrackTurnoutDoubleElementView(0, 0) },
   { type: ELEMENT_TYPES.TRACK_SENSOR, label: "Sensor", preview: new TrackSensorElementView(0, 0) },
+  { type: ELEMENT_TYPES.TRACK_BLOCK, label: "Block", preview: new BlockElementView(0, 0) },
   { type: ELEMENT_TYPES.TRACK_SIGNAL2, label: "2-light signal", preview: createSignalPreview(2) },
   { type: ELEMENT_TYPES.TRACK_SIGNAL3, label: "3-light signal", preview: createSignalPreview(3) },
   { type: ELEMENT_TYPES.TRACK_SIGNAL4, label: "4-light signal", preview: createSignalPreview(4) },
@@ -684,6 +686,20 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
     }
     invalidate();
   }), [layout, invalidate]);
+
+  useEffect(() => wsClient.on("blockStateChanged", data => {
+    const blocks = layout.getAllElements().filter(
+      (element): element is BlockElementView => element instanceof BlockElementView,
+    );
+    for (const block of blocks) block.locoAddress = 0;
+    for (const [blockId, state] of Object.entries(data)) {
+      const block = blocks.find(item => item.id === blockId);
+      if (!block) continue;
+      block.locoAddress = state.locoAddress ??
+        locos.find(loco => loco.id === state.locoId)?.address ?? 0;
+    }
+    invalidate();
+  }), [layout, locos, invalidate]);
 
   useEffect(() => {
     if (wsStatus === "connected") {

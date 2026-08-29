@@ -527,7 +527,8 @@ export class BlockElementView
       type: ELEMENT_TYPES.TRACK_BLOCK,
       address: this.address,
       length: this.length,
-      locoAddress: this.locoAddress,
+      // Occupancy belongs to /runtime-state.json, never to the saved layout.
+      locoAddress: 0,
       sensorAddress: this.sensorAddress,
       blockType: this.blockType as BlockType,
     };

@@ -15,7 +15,7 @@ The complete source is contained in the `DCCExpressLite` repository. It does not
 ## Build
 
 ```powershell
-cd C:\ChatGPT\GitRepo\DCCExpressLite\web-ui
+cd <your-path>\DCCExpressLite\web-ui
 npm ci
 npm run embed
 
@@ -30,4 +30,3 @@ The merged image must be exactly 4,194,304 bytes. See the repository's `DEVELOPI
 ## Release model
 
 A `v*` tag builds and publishes one merged firmware asset, creates a GitHub prerelease for alpha/beta versions, and updates the GitHub Pages version selector. Separate Windows, Linux, macOS, or split firmware downloads are not produced.
-

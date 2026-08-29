@@ -51,6 +51,34 @@ button,
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
 }
 
+.app-header-main {
+  min-width: 0;
+}
+
+.app-header-main > div {
+  min-width: 0;
+}
+
+.app-version-badge {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    align-items: flex-start;
+  }
+
+  .app-header-main {
+    flex: 1 1 100%;
+  }
+
+  .app-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 .action-card {
   min-height: 150px;
   cursor: pointer;
@@ -345,4 +373,129 @@ button,
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+
+/* Mobile controller */
+
+.drive-shell {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+  padding:
+    max(6px, env(safe-area-inset-top))
+    max(6px, env(safe-area-inset-right))
+    max(6px, env(safe-area-inset-bottom))
+    max(6px, env(safe-area-inset-left));
+}
+
+.drive-shell > .mantine-Stack-root,
+.drive-shell .mobile-content,
+.mobile-drive-page,
+.mobile-loco-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.mobile-loco-panel > .mantine-Card-root {
+  height: 100%;
+}
+
+.mobile-throttle-fit {
+  width: 100%;
+  min-height: 0;
+}
+
+.mobile-throttle-layout {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 8px;
+}
+
+.mobile-throttle-fit--viewport {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mobile-throttle-layout--viewport {
+  --throttle-scale: 1;
+  --throttle-offset-x: 0px;
+  --throttle-offset-y: 0px;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 430px;
+  max-width: none;
+  transform-origin: top left;
+  transform:
+    translate(
+      var(--throttle-offset-x),
+      var(--throttle-offset-y)
+    )
+    scale(var(--throttle-scale));
+}
+
+.mobile-throttle-controls,
+.mobile-throttle-functions {
+  min-width: 0;
+  min-height: 0;
+}
+
+.mobile-throttle-functions {
+  flex: 1;
+}
+
+@media (orientation: portrait) {
+  .mobile-throttle-layout--viewport {
+    width: 400px;
+  }
+
+  .mobile-throttle-layout--viewport
+    .mobile-throttle-controls
+    .mantine-Button-root {
+    min-height: 56px;
+  }
+
+  .mobile-throttle-layout--viewport
+    .mobile-throttle-functions
+    .mantine-Button-root {
+    min-height: 64px;
+  }
+}
+
+
+@media (orientation: landscape) {
+  .mobile-throttle-layout--viewport {
+    display: grid;
+
+    grid-template-columns:
+      minmax(280px, 42%)
+      minmax(420px, 58%);
+
+    width: 1000px;
+    height: auto;
+    gap: 8px;
+  }
+
+  .mobile-throttle-layout--viewport .mobile-throttle-controls,
+  .mobile-throttle-layout--viewport .mobile-throttle-functions {
+    overflow: hidden;
+  }
+}
+
+.mobile-back-fab {
+  position: fixed;
+
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+
+  z-index: 450;
+
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.5);
 }

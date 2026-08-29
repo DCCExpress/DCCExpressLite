@@ -46,6 +46,7 @@ export type TrackCanvasProps = {
   onInvalidate: () => void;
   fitCounter: number;
   centerCounter?: number;
+  viewStorageKey?: string;
   turnoutSelectionMode: boolean;
   setBusy?: (busy: boolean, text?: string) => void;
   locos: Loco[];

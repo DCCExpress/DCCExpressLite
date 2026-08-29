@@ -15,6 +15,12 @@ The locomotive editor stores each locomotive's stable ID, DCC address, name, max
 
 Direction inversion is applied server-side before DCC throttle commands are generated. Image mirroring is client-side and stored per browser, allowing phones on opposite sides of the layout to show the locomotive nose correctly for their viewpoint.
 
+## Gamepad control
+
+A Bluetooth or USB game controller can operate the locomotive selected in an open throttle panel. Button assignments, controller selection, defaults, and troubleshooting are described on the dedicated [Gamepad control](Gamepad-Control) page.
+
+If both locomotive panels are visible in the Layout Editor, gamepad actions are received by both panels. Close the panel that must not receive gamepad commands, or use the single-panel Mobile Controller.
+
 ## Mobile layout overlay
 
 The floating layout button opens a runtime-only track panel without editor or property panels.
@@ -33,4 +39,3 @@ Route buttons use the same progress overlay and emergency-stop behaviour as the 
 ## Multi-client operation
 
 Multiple browsers can be connected simultaneously. Locomotive, turnout, accessory, sensor, signal, power, and emergency states are broadcast through WebSocket updates. A lost WebSocket connection is shown in red and reconnects automatically.
-

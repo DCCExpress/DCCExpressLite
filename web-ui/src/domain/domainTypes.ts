@@ -128,6 +128,7 @@ export type LocoState = {
 export type BlockState = {
   blockId: string;
   locoId: string | null;
+  locoAddress?: number;
 };
 
 export type CommandCenterType =

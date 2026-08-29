@@ -1,7 +1,8 @@
- $env:Path += ";C:\Users\junge\.platformio\penv\Scripts"    
+# If PlatformIO is not already available on PATH, add your own installation:
+$env:Path += ";<your-platformio-cli-directory>"
 
-platformio.exe run -e ESP32 -t upload       
-platformio.exe run -e ESP32 -t uploadfs     
+pio run -e ESP32 -t upload
+pio run -e ESP32 -t uploadfs
 
 git add .
 git commit -m "Prepare v0.1.0-alpha.3"

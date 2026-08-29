@@ -74,6 +74,7 @@ export default function TrackCanvas({
   onInvalidate,
   fitCounter,
   centerCounter = 0,
+  viewStorageKey,
   turnoutSelectionMode,
   setBusy,
   locos,
@@ -113,7 +114,9 @@ export default function TrackCanvas({
   const mountedRef = useRef(true);
   const turnoutSelectionModeRef = useRef(false);
   const touchPointsRef = useRef<Map<number, TouchPoint>>(new Map());
-  const viewRef = useRef<ViewState>(loadSavedViewState());
+  const viewRef = useRef<ViewState>(
+    loadSavedViewState(viewStorageKey)
+  );
   const panRef = useRef<PanState>({ isPanning: false, lastX: 0, lastY: 0 });
   const dragRef = useRef<DragState>({
     isDraggingElement: false,
@@ -176,7 +179,7 @@ export default function TrackCanvas({
   }, [requestDraw]);
 
   const persistView = () => {
-    saveViewState(viewRef.current);
+    saveViewState(viewRef.current, viewStorageKey);
   };
 
   const openSignalAspectPopover = (

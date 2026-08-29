@@ -7,6 +7,7 @@ import "@mantine/notifications/styles.css";
 import "@/i18n";
 import { CommandCenterProvider } from "@/context/CommandCenterContext";
 import { EditorSettingsProvider } from "@/context/EditorSettingsContext";
+import { GamepadProvider } from "@/context/GamepadContext";
 import App from "./App";
 import "./styles.css";
 
@@ -17,7 +18,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <Notifications position="bottom-center" autoClose={2500} />
       <CommandCenterProvider>
         <EditorSettingsProvider>
-          <App />
+          <GamepadProvider>
+            <App />
+          </GamepadProvider>
         </EditorSettingsProvider>
       </CommandCenterProvider>
     </MantineProvider>

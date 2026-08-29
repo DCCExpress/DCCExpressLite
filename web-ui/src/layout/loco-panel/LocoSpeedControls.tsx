@@ -46,7 +46,8 @@ export default function LocoSpeedControls({
         {SPEED_PRESETS.map(preset => (
           <Button
             key={preset}
-            size="xs"
+            size="md"
+            style={{"padding": "0"}}
             variant="light"
             disabled={disabled}
             onClick={() =>

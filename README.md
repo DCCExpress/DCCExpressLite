@@ -1,10 +1,14 @@
 # DCCExpressLite
 
+### Browser-based DCC model railway command center for the DCC-EX EX-CSB1
+
 [![CI](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/ci.yml/badge.svg)](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/ci.yml)
 [![Release](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/release-lite.yml/badge.svg)](https://github.com/DCCExpress/DCCExpressLite/actions/workflows/release-lite.yml)
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](LICENSE.md)
 
-DCCExpressLite is a self-contained ESP32/EX-CSB1 command-station firmware with an embedded browser-based layout editor and controller. No separate Node.js server or sibling source repository is required at runtime or during development.
+**DCCExpressLite is a complete browser-controlled digital model railway command center for the [DCC-EX EX-CSB1](https://dcc-ex.com/ex-commandstation/rtr-manual__included-esb1.html).** It combines the proven [DCC-EX EX-CommandStation](https://dcc-ex.com/ex-commandstation/index.html) firmware with an embedded layout editor, locomotive throttle, turnout and signal control, routes, automation, decoder programming, diagnostics, and mobile control.
+
+The EX-CSB1 generates the DCC track signal and controls locomotives and accessory decoders. Its ESP32 also serves the complete DCCExpressLite web application directly over Wi-Fi, making the EX-CSB1 a self-contained command center for a model railway. No separate desktop application, Node.js server, cloud service, or sibling source repository is required at runtime or during development.
 
 ## Fastest installation: Web Installer
 
@@ -21,13 +25,16 @@ The web installer is the only supported installation method. It flashes one veri
 
 ## Features
 
-- DCC-EX based EX-CSB1 command-station firmware.
+- Built on the open-source [DCC-EX](https://dcc-ex.com/) model railway control platform.
+- Designed specifically for the integrated ESP32-based [EX-CSB1 Command Station / Booster](https://dcc-ex.com/ex-commandstation/rtr-manual__included-esb1.html).
 - CommandStation-EX `5.6.1-Prod` core with a small, documented integration patch surface.
 - HTTP server on port `80` and WebSocket endpoint at `/ws`.
 - Responsive layout editor and runtime controller.
 - Locomotive editor, dual throttle panels, functions and per-device image mirroring.
+- Configurable Bluetooth/USB gamepad control with multiple-controller selection and client-local mappings.
 - Track power, emergency stop, turnouts, accessories, sensors, signals and routes.
 - Route sequencing, route highlighting and cached accessory states.
+- Persistent block occupancy and turnout runtime state shared between clients.
 - Network configuration stored on the ESP32.
 - Runtime, flash, processor, temperature and HAL/I²C device information.
 - Layout, locomotive and locomotive-image import/export.

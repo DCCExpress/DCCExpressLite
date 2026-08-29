@@ -12,7 +12,7 @@ export default function LocoEmergencyButton({
 }: LocoEmergencyButtonProps) {
   return (
     <Button
-      size="md"
+      size="lg"
       style={{ width: "100%" }}
       color={emergencyStop ? "red" : "gray"}
       className={emergencyStop ? "blinkBadge" : ""}
