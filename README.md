@@ -23,6 +23,8 @@ For most users the quickest route is the **[DCCExpressLite Web Installer](https:
 
 The web installer is the only supported installation method. It flashes one verified merged image containing the bootloader, partition table, firmware, embedded web application, starter layout, four locomotives and their images. It can then configure the saved home network over USB. Web Serial is not available in Firefox, Safari or mobile browsers.
 
+![Screenshot](wiki-docs/images/Screenshot%202026-08-29%20063942.png)
+
 ## Features
 
 - Built on the open-source [DCC-EX](https://dcc-ex.com/) model railway control platform.
