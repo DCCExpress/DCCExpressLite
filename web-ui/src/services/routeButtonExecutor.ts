@@ -13,6 +13,9 @@ import {
 } from "../helpers";
 
 import {
+  sendTurnoutOutput,
+} from "./layoutOutput";
+import {
   wsApi,
 } from "./wsApi";
 
@@ -65,7 +68,9 @@ export async function executeLegacyRouteButton({
        * Keep this unchanged here. Logical C/T display is handled only
        * by the property-panel UI using turnoutClosedValue.
        */
-      wsApi.setTurnout(
+      turnout.turnoutClosed = routeTurnout.closed;
+      sendTurnoutOutput(
+        turnout.outputMode,
         turnout.turnoutAddress,
         routeTurnout.closed
       );

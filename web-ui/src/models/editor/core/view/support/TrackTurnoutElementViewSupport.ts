@@ -5,8 +5,9 @@ import {
   drawTextWithRoundedBackground,
 } from "../../../../../graphics";
 import {
-  wsApi,
-} from "../../../../../services/wsApi";
+  OUTPUT_COMMAND_MODE_OPTIONS,
+  sendTurnoutOutput,
+} from "../../../../../services/layoutOutput";
 import type {
   DrawOptions,
 } from "../../../types/EditorTypes";
@@ -69,9 +70,12 @@ export function drawTurnoutElement(
 export function toggleTurnout(
   element: CommonTrackTurnoutElement
 ): void {
-  wsApi.setTurnout(
+  const nextClosed = !element.turnoutClosed;
+  element.turnoutClosed = nextClosed;
+  sendTurnoutOutput(
+    element.outputMode,
     element.turnoutAddress,
-    !element.turnoutClosed
+    nextClosed
   );
 }
 
@@ -88,7 +92,14 @@ export function getTurnoutEditableProperties(
   return [
     ...baseProperties,
     {
-      label: "Turnout Address",
+      label: "Output type",
+      key: "outputMode",
+      type: "select",
+      readonly: false,
+      options: OUTPUT_COMMAND_MODE_OPTIONS,
+    },
+    {
+      label: "Accessory address / VPIN",
       key: "turnoutAddress",
       type: "number",
       readonly: false,

@@ -13,6 +13,7 @@ import { TrackLevelCrossingElementView } from "@/models/editor/elements/TrackLev
 import { TrackSensorElementView } from "@/models/editor/elements/TrackSensorElementView";
 import { TrackSignalElementView } from "@/models/editor/elements/TrackSignalElementView";
 import { BlockElementView } from "@/models/editor/elements/BlockElementView";
+import { ButtonElementView } from "@/models/editor/elements/ButtonElementView";
 import TrackTurnoutDoubleElementView from "@/models/editor/elements/TrackTurnoutDoubleElementView";
 import { getCanvasImage } from "@/models/editor/rendering/ImageCache";
 import type { EditorTool } from "@/models/editor/types/EditorTypes";
@@ -88,7 +89,7 @@ export default function RuntimeLayoutOverlay({
 
   useEffect(() => wsClient.on("turnoutChanged", data => {
     for (const element of layout.getAllElements()) {
-      if (isTurnoutElement(element) && element.turnoutAddress === data.address) {
+      if (isTurnoutElement(element) && element.outputMode === "accessory" && element.turnoutAddress === data.address) {
         element.turnoutClosed = data.closed;
       } else if (element instanceof TrackTurnoutDoubleElementView) {
         if (element.turnout1Address === data.address) element.turnout1Closed = data.closed;
@@ -108,8 +109,10 @@ export default function RuntimeLayoutOverlay({
 
   useEffect(() => wsClient.on("accessoryChanged", data => {
     for (const element of layout.getAllElements()) {
-      if (element instanceof TrackSignalElementView && element.address <= data.address && element.lastAddress >= data.address) {
+      if (element instanceof TrackSignalElementView && element.outputMode === "accessory" && element.address <= data.address && element.lastAddress >= data.address) {
         element.setValue(data.address, data.active);
+      } else if (element instanceof ButtonElementView && element.outputMode === "accessory" && element.address === data.address) {
+        element.on = data.active === element.activeValue;
       } else if (element instanceof TrackLevelCrossingElementView && element.basicAccessoryAddress === data.address) {
         element.barrierClosed = data.active === element.basicAccessoryClosedValue;
       }

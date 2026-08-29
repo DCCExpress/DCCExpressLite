@@ -61,6 +61,7 @@ export class TrackTurnoutRightElement extends TrackTurnoutElement {
     element.address = data.address;
     element.length = data.length;
     element.turnoutAddress = data.turnoutAddress ?? 0;
+    element.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
     element.turnoutClosedValue = data.turnoutClosedValue;
     element.bg = data.bg;
     element.fg = data.fg;
@@ -72,6 +73,7 @@ export class TrackTurnoutRightElement extends TrackTurnoutElement {
       ...super.toJSON(),
       type: ELEMENT_TYPES.TRACK_TURNOUT_RIGHT,
       turnoutAddress: this.turnoutAddress,
+      outputMode: this.outputMode,
       turnoutClosedValue: this.turnoutClosedValue,
     };
   }

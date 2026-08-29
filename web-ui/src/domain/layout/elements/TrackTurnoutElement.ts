@@ -4,8 +4,12 @@ import {
 import {
   TrackElement,
 } from "../model/TrackElement.js";
+import type {
+  OutputCommandModeDto,
+} from "../layoutDto.js";
 
 export abstract class TrackTurnoutElement extends TrackElement {
+  outputMode: OutputCommandModeDto = "accessory";
   turnoutAddress: number = 0;
   turnoutClosedValue: boolean = false;
   turnoutClosed: boolean = false;

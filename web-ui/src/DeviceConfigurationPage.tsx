@@ -6,7 +6,6 @@ import {
   Card,
   Divider,
   Group,
-  Modal,
   NumberInput,
   Select,
   SimpleGrid,
@@ -33,6 +32,8 @@ import {
   useMemo,
   useState,
 } from "react";
+
+import AppModal from "@/components/common/AppModal";
 
 type Props = {
   onBack: () => void;
@@ -492,7 +493,7 @@ export default function DeviceConfigurationPage({
 
   return (
     <Stack gap="md">
-      <Modal
+      <AppModal
         opened={dialogOpened}
         onClose={() => setDialogOpened(false)}
         title={form.id ? "Edit device" : "Add I²C device"}
@@ -502,7 +503,9 @@ export default function DeviceConfigurationPage({
         closeOnClickOutside={false}
         closeOnEscape={false}
         trapFocus={false}
-      >        <Stack gap="md">
+        draggable
+      >
+        <Stack gap="md">
           <Select
             label="Driver"
             data={DEVICE_TYPE_OPTIONS}
@@ -650,15 +653,16 @@ export default function DeviceConfigurationPage({
             </Button>
           </Group>
         </Stack>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         opened={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         title="Delete device"
         centered
         size="sm"
         returnFocus={false}
+        draggable
       >
         <Stack>
           <Text>
@@ -677,7 +681,7 @@ export default function DeviceConfigurationPage({
             </Button>
           </Group>
         </Stack>
-      </Modal>
+      </AppModal>
 
       <Card withBorder radius={5} p="md">
         <Group justify="space-between" align="center" wrap="wrap">

@@ -44,8 +44,9 @@ import {
   generateId,
 } from "../../../helpers";
 import {
-  wsApi,
-} from "../../../services/wsApi";
+  OUTPUT_COMMAND_MODE_OPTIONS,
+  sendBinaryOutput,
+} from "../../../services/layoutOutput";
 import {
   DrawOptions,
   ITrackSignalElement,
@@ -421,14 +422,17 @@ export class TrackSignalElementView
   }
 
   send(bits: number): void {
+    this.value = 0;
     for (let index = 0; index < this.addressLength; index++) {
       const value =
         ((bits >> index) & 1) === 1;
 
-      wsApi.setBasicAccessory(
+      sendBinaryOutput(
+        this.outputMode,
         this.address + index,
         value
       );
+      this.setValue(this.address + index, value);
     }
   }
 
@@ -437,6 +441,7 @@ export class TrackSignalElementView
       ...super.toJSON(),
       type: ELEMENT_TYPES.TRACK_SIGNAL2,
       address: this.address,
+      outputMode: this.outputMode,
       length: this.length,
       aspect: this.aspect,
       addressLength: this.addressLength,
@@ -466,6 +471,7 @@ export class TrackSignalElementView
     element.length = data.length;
     element.aspect = data.aspect ?? 2;
     element.address = data.address ?? 0;
+    element.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
     element.addressLength = data.addressLength ?? 5;
     element.dispalyAsSingleLamp =
       data.dispalyAsSingleLamp ?? false;
@@ -492,6 +498,7 @@ export class TrackSignalElementView
     copy.length = this.length;
     copy.aspect = this.aspect;
     copy.address = this.address;
+    copy.outputMode = this.outputMode;
     copy.addressLength = this.addressLength;
     copy.dispalyAsSingleLamp = this.dispalyAsSingleLamp;
     copy.valueGreen = this.valueGreen;
@@ -506,13 +513,20 @@ export class TrackSignalElementView
     return [
       ...getBaseEditableProperties(),
       {
+        label: "Output type",
+        key: "outputMode",
+        type: "select",
+        readonly: false,
+        options: OUTPUT_COMMAND_MODE_OPTIONS,
+      },
+      {
         label: "Single",
         key: "dispalyAsSingleLamp",
         type: "checkbox",
         readonly: false,
       },
       {
-        label: "Start Address",
+        label: "Start accessory address / VPIN",
         key: "address",
         type: "number",
         readonly: false,

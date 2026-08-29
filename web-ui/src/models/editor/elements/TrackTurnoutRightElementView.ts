@@ -392,6 +392,7 @@ export class TrackTurnoutRightElementView
       address: this.address,
       length: this.length,
       turnoutAddress: this.turnoutAddress,
+      outputMode: this.outputMode,
       turnoutClosedValue: this.turnoutClosedValue,
     };
   }
@@ -412,6 +413,7 @@ export class TrackTurnoutRightElementView
     element.address = data.address;
     element.length = data.length;
     element.turnoutAddress = data.turnoutAddress ?? 0;
+    element.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
     element.turnoutClosedValue = data.turnoutClosedValue;
     element.bg = data.bg;
     element.fg = data.fg;
@@ -432,6 +434,7 @@ export class TrackTurnoutRightElementView
     copy.address = this.address;
     copy.length = this.length;
     copy.turnoutAddress = this.turnoutAddress;
+    copy.outputMode = this.outputMode;
     copy.turnoutClosed = this.turnoutClosed;
     copy.turnoutClosedValue = this.turnoutClosedValue;
 

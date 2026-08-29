@@ -44,6 +44,9 @@ import type {
 import type {
   IEditableProperty,
 } from "./PropertyDescriptor";
+import {
+  OUTPUT_COMMAND_MODE_OPTIONS,
+} from "../../../services/layoutOutput";
 
 type CanvasPoint = {
   x: number;
@@ -219,14 +222,21 @@ export default class TrackTurnoutDoubleElementView
     return [
       ...getBaseEditableProperties(),
       {
-        label: "Turnout 1 Address",
+        label: "Output type",
+        key: "outputMode",
+        type: "select",
+        readonly: false,
+        options: OUTPUT_COMMAND_MODE_OPTIONS,
+      },
+      {
+        label: "Turnout 1 address / VPIN",
         key: "turnout1Address",
         type: "number",
         readonly: false,
         validate: () => true,
       },
       {
-        label: "Turnout 2 Address",
+        label: "Turnout 2 address / VPIN",
         key: "turnout2Address",
         type: "number",
         readonly: false,
@@ -470,6 +480,7 @@ export default class TrackTurnoutDoubleElementView
       address: this.address,
       length: this.length,
       turnout1Address: this.turnout1Address,
+      outputMode: this.outputMode,
       turnout2Address: this.turnout2Address,
       turnout1ClosedValue: this.turnout1ClosedValue,
       turnout2ClosedValue: this.turnout2ClosedValue,
@@ -494,6 +505,7 @@ export default class TrackTurnoutDoubleElementView
     element.bg = data.bg;
     element.fg = data.fg;
     element.turnout1Address = data.turnout1Address;
+    element.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
     element.turnout2Address = data.turnout2Address;
     element.turnout1ClosedValue = data.turnout1ClosedValue ?? element.turnout1ClosedValue;
     element.turnout2ClosedValue = data.turnout2ClosedValue ?? element.turnout2ClosedValue;
@@ -514,6 +526,7 @@ export default class TrackTurnoutDoubleElementView
     copy.address = this.address;
     copy.length = this.length;
     copy.turnout1Address = this.turnout1Address;
+    copy.outputMode = this.outputMode;
     copy.turnout2Address = this.turnout2Address;
     copy.turnout1ClosedValue = this.turnout1ClosedValue;
     copy.turnout2ClosedValue = this.turnout2ClosedValue;

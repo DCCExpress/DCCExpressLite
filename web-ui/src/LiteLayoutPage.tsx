@@ -59,6 +59,7 @@ import { TrackCurveElementView } from "@/models/editor/elements/TrackCurveElemen
 import { TrackEndElementView } from "@/models/editor/elements/TrackEndElementView";
 import { TrackLevelCrossingElementView } from "@/models/editor/elements/TrackLevelCrossingElementView";
 import { BlockElementView } from "@/models/editor/elements/BlockElementView";
+import { ButtonElementView } from "@/models/editor/elements/ButtonElementView";
 import { TrackSensorElementView } from "@/models/editor/elements/TrackSensorElementView";
 import { TrackSignalElementView } from "@/models/editor/elements/TrackSignalElementView";
 import type { IEditableProperty } from "@/models/editor/elements/PropertyDescriptor";
@@ -146,6 +147,7 @@ const PICKER_ITEMS: PickerItem[] = [
   { type: ELEMENT_TYPES.TRACK_SIGNAL2, label: "2-light signal", preview: createSignalPreview(2) },
   { type: ELEMENT_TYPES.TRACK_SIGNAL3, label: "3-light signal", preview: createSignalPreview(3) },
   { type: ELEMENT_TYPES.TRACK_SIGNAL4, label: "4-light signal", preview: createSignalPreview(4) },
+  { type: ELEMENT_TYPES.BUTTON, label: "Output button", preview: new ButtonElementView(0, 0) },
   { type: ELEMENT_TYPES.BUTTON_ROUTE, label: "Route", preview: new RouteButtonElementView(0, 0) },
   { type: ELEMENT_TYPES.LABEL, label: "Label", preview: new LabelElementView(0, 0) },
 ];
@@ -657,7 +659,7 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
 
   useEffect(() => wsClient.on("turnoutChanged", data => {
     for (const element of layout.getAllElements()) {
-      if (isTurnoutElement(element) && element.turnoutAddress === data.address) {
+      if (isTurnoutElement(element) && element.outputMode === "accessory" && element.turnoutAddress === data.address) {
         element.turnoutClosed = data.closed;
       } else if (element instanceof TrackTurnoutDoubleElementView) {
         if (element.turnout1Address === data.address) element.turnout1Closed = data.closed;
@@ -679,8 +681,10 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
 
   useEffect(() => wsClient.on("accessoryChanged", data => {
     for (const element of layout.getAllElements()) {
-      if (element instanceof TrackSignalElementView && element.address <= data.address && element.lastAddress >= data.address) {
+      if (element instanceof TrackSignalElementView && element.outputMode === "accessory" && element.address <= data.address && element.lastAddress >= data.address) {
         element.setValue(data.address, data.active);
+      } else if (element instanceof ButtonElementView && element.outputMode === "accessory" && element.address === data.address) {
+        element.on = data.active === element.activeValue;
       } else if (element instanceof TrackLevelCrossingElementView && element.basicAccessoryAddress === data.address) {
         element.barrierClosed = data.active === element.basicAccessoryClosedValue;
       }

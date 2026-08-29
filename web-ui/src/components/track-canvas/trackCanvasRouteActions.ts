@@ -28,6 +28,9 @@ import {
 } from "../../services/routeGraphStore";
 
 import {
+  sendTurnoutOutput,
+} from "../../services/layoutOutput";
+import {
   wsApi,
 } from "../../services/wsApi";
 
@@ -80,7 +83,9 @@ export async function executeRouteButton(
         continue;
       }
 
-      wsApi.setTurnout(
+      element.turnoutClosed = routeTurnout.closed;
+      sendTurnoutOutput(
+        element.outputMode,
         element.turnoutAddress,
         routeTurnout.closed
       );

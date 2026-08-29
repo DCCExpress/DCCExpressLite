@@ -2,6 +2,7 @@ import {
   ELEMENT_TYPES,
 } from "../elementTypes.js";
 import type {
+  OutputCommandModeDto,
   TrackSignalElementDto,
 } from "../layoutDto.js";
 import {
@@ -25,6 +26,7 @@ export class TrackSignalElement extends TrackElement {
     ELEMENT_TYPES.TRACK_SIGNAL2;
 
   addressLength: number = 5;
+  outputMode: OutputCommandModeDto = "accessory";
   max: number = 10;
   isExtendedDecoder: boolean = false;
 
@@ -196,6 +198,7 @@ export class TrackSignalElement extends TrackElement {
     element.rotationStep = data.rotationStep;
     element.aspect = data.aspect ?? 2;
     element.address = data.address ?? 0;
+    element.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
     element.length = data.length;
     element.addressLength = data.addressLength ?? 5;
     element.dispalyAsSingleLamp =
@@ -215,6 +218,7 @@ export class TrackSignalElement extends TrackElement {
       type: ELEMENT_TYPES.TRACK_SIGNAL2,
       aspect: this.aspect,
       address: this.address,
+      outputMode: this.outputMode,
       addressLength: this.addressLength,
       dispalyAsSingleLamp: this.dispalyAsSingleLamp,
       valueGreen: this.valueGreen,

@@ -216,14 +216,18 @@ export interface TrackCrossingElementDto extends TrackElementDto {
   type: "trackcrossing";
 }
 
+export type OutputCommandModeDto = "accessory" | "vpin";
+
 export interface TrackTurnoutLeftElementDto extends TrackElementDto {
   type: "trackturnoutleft";
+  outputMode?: OutputCommandModeDto;
   turnoutAddress: number;
   turnoutClosedValue: boolean;
 }
 
 export interface TrackTurnoutRightElementDto extends TrackElementDto {
   type: "trackturnoutright";
+  outputMode?: OutputCommandModeDto;
   turnoutAddress: number;
   turnoutClosedValue: boolean;
 }
@@ -234,6 +238,7 @@ export interface TrackTurnoutTwoWayElementDto extends TrackElementDto {
 
 export interface TrackTurnoutDoubleElementDto extends TrackElementDto {
   type: "trackturnoutdouble";
+  outputMode?: OutputCommandModeDto;
   turnout1Address: number;
   turnout2Address: number;
   turnout1ClosedValue: boolean;
@@ -257,11 +262,13 @@ export interface TrackSensorElementDto extends TrackElementDto {
 
 export interface ButtonElementDto extends BaseElementDto {
   type: "button";
+  outputMode?: OutputCommandModeDto;
   colorOn: string;
   colorOff: string;
   textOn: string;
   textOff: string;
   address: number;
+  activeValue?: boolean;
 }
 
 export interface ButtonScriptElementDto extends BaseElementDto {
@@ -327,6 +334,7 @@ export interface LabelElementDto extends BaseElementDto {
 
 export interface TrackSignalElementDto extends TrackElementDto {
   type: "tracksignal2";
+  outputMode?: OutputCommandModeDto;
   aspect: number;
   address: number;
   addressLength: number;

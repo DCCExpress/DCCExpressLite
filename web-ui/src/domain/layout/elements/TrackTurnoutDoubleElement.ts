@@ -8,6 +8,7 @@ import {
   ELEMENT_TYPES,
 } from "../elementTypes.js";
 import type {
+  OutputCommandModeDto,
   TrackTurnoutDoubleElementDto,
   RotationStepDto,
 } from "../layoutDto.js";
@@ -49,6 +50,7 @@ export default class TrackTurnoutDoubleElement extends TrackElement {
   rotationStep: RotationStepDto = 45;
 
   turnout1Address: number = 0;
+  outputMode: OutputCommandModeDto = "accessory";
   turnout2Address: number = 0;
   turnout1ClosedValue: boolean = true;
   turnout2ClosedValue: boolean = true;
