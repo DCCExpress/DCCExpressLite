@@ -8,7 +8,8 @@ Signal Logic runs on the EX-CSB1, not in an open browser. Closing or refreshing 
 
 A signal stores:
 
-- starting linear accessory address;
+- output type: DCC accessory or DCC-EX VPIN;
+- starting accessory address or VPIN;
 - address length (normally 5 for DigiSignal);
 - lamp/aspect count;
 - bit values for GREEN, RED, YELLOW, and WHITE.
@@ -23,7 +24,7 @@ For a start address of `100`, length `5`, and bit value `10110`, the server writ
 <a 104 1>
 ```
 
-One output is processed per firmware-loop pass. DCC-EX then queues real accessory packets on MAIN. The state is also cached and broadcast to browser clients.
+One output is processed per firmware-loop pass. In accessory mode DCC-EX queues real accessory packets on MAIN. In VPIN mode the same bits are written to consecutive DCC-EX virtual pins, allowing HAL GPIO and I²C output devices to drive the signal. The state is cached and broadcast to browser clients in both modes.
 
 ## Rule evaluation
 
@@ -34,7 +35,7 @@ One output is processed per firmware-loop pass. DCC-EX then queues real accessor
 
 Conditions can reference:
 
-- a turnout ID and its Closed/Thrown state;
+- a turnout ID and its Closed/Thrown state, using either its accessory or VPIN feedback state;
 - a sensor ID and its Active/Inactive state.
 
 Signal, turnout, and sensor references are stored by stable layout element ID. Hardware addresses are resolved from the current layout when the firmware loads the rules. Changing an address does not require rewriting every rule.
@@ -52,7 +53,6 @@ Signal, turnout, and sensor references are stored by stable layout element ID. H
 - 6 rules per signal
 - 6 conditions per rule
 - 32 monitored sensor inputs
-- 1–8 consecutive accessory outputs per signal
+- 1–8 consecutive accessory or VPIN outputs per signal
 
 Use **Validate rules** before saving and the global **CHECK** command after layout editing.
-

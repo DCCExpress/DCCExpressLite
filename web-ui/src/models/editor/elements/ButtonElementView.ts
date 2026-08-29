@@ -1,5 +1,5 @@
 import { ELEMENT_TYPES } from "@domain/layout/elementTypes";
-import type { OutputCommandModeDto } from "@domain/layout/layoutDto";
+import type { ButtonBehaviorDto, OutputCommandModeDto } from "@domain/layout/layoutDto";
 import { generateId } from "../../../helpers";
 import { ClickableBaseElementView } from "../core/ClickableBaseElementView";
 import { DrawOptions, IButtonElement } from "../types/EditorTypes";
@@ -13,6 +13,8 @@ import {
 export class ButtonElementView extends ClickableBaseElementView implements IButtonElement {
     override type = ELEMENT_TYPES.BUTTON;
     outputMode: OutputCommandModeDto = "accessory";
+    behavior: ButtonBehaviorDto = "toggle";
+    pulseDurationMs: number = 250;
     address: number = 0;
     activeValue: boolean = true;
     on: boolean = false;
@@ -20,6 +22,13 @@ export class ButtonElementView extends ClickableBaseElementView implements IButt
     colorOff: string = "green";
     textOn: string = "ON";
     textOff: string = "OFF";
+    private momentaryPressed: boolean = false;
+    private pulseTimer: number | null = null;
+
+    private sendLogicalState(logicalOn: boolean): boolean {
+        const physicalValue = logicalOn ? this.activeValue : !this.activeValue;
+        return sendBinaryOutput(this.outputMode, this.address, physicalValue);
+    }
 
     draw(ctx: CanvasRenderingContext2D, options?: DrawOptions): void {
         if (!this.visible) return;
@@ -49,11 +58,32 @@ export class ButtonElementView extends ClickableBaseElementView implements IButt
     }
 
     mouseDown(_event: MouseEvent): void {
-        const nextOn = !this.on;
-        const physicalValue = nextOn ? this.activeValue : !this.activeValue;
-        if (sendBinaryOutput(this.outputMode, this.address, physicalValue)) {
-            this.on = nextOn;
+        // The command station is the source of truth. The matching
+        // accessoryChanged/vpinChanged broadcast updates this client and all
+        // other connected clients in the same way.
+        if (this.behavior === "toggle") {
+            this.sendLogicalState(!this.on);
+            return;
         }
+
+        if (this.behavior === "momentary") {
+            if (this.momentaryPressed) return;
+            this.momentaryPressed = this.sendLogicalState(true);
+            return;
+        }
+
+        this.sendLogicalState(true);
+        if (this.pulseTimer !== null) window.clearTimeout(this.pulseTimer);
+        this.pulseTimer = window.setTimeout(() => {
+            this.pulseTimer = null;
+            this.sendLogicalState(false);
+        }, Math.max(50, Math.min(10000, this.pulseDurationMs)));
+    }
+
+    override mouseUp(_event: MouseEvent): void {
+        if (this.behavior !== "momentary" || !this.momentaryPressed) return;
+        this.momentaryPressed = false;
+        this.sendLogicalState(false);
     }
 
     override toJSON(): IButtonElement {
@@ -61,6 +91,8 @@ export class ButtonElementView extends ClickableBaseElementView implements IButt
             ...super.toJSON(),
             type: ELEMENT_TYPES.BUTTON,
             outputMode: this.outputMode,
+            behavior: this.behavior,
+            pulseDurationMs: this.pulseDurationMs,
             address: this.address,
             activeValue: this.activeValue,
             colorOn: this.colorOn,
@@ -79,6 +111,10 @@ export class ButtonElementView extends ClickableBaseElementView implements IButt
         e.fg = data.fg;
         e.address = data.address;
         e.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
+        e.behavior = data.behavior === "push" || data.behavior === "momentary"
+            ? data.behavior
+            : "toggle";
+        e.pulseDurationMs = Math.max(50, Math.min(10000, data.pulseDurationMs ?? 250));
         e.activeValue = data.activeValue ?? true;
         e.colorOn = data.colorOn;
         e.colorOff = data.colorOff;
@@ -94,6 +130,8 @@ export class ButtonElementView extends ClickableBaseElementView implements IButt
         copy.selected = this.selected;
         copy.address = this.address;
         copy.outputMode = this.outputMode;
+        copy.behavior = this.behavior;
+        copy.pulseDurationMs = this.pulseDurationMs;
         copy.activeValue = this.activeValue;
         copy.colorOn = this.colorOn;
         copy.colorOff = this.colorOff;
@@ -112,6 +150,18 @@ export class ButtonElementView extends ClickableBaseElementView implements IButt
                 readonly: false,
                 options: OUTPUT_COMMAND_MODE_OPTIONS,
             },
+            {
+                label: "Button behavior",
+                key: "behavior",
+                type: "select",
+                readonly: false,
+                options: [
+                    { value: "toggle", label: "Toggle · alternate ON / OFF" },
+                    { value: "push", label: "Push · timed pulse" },
+                    { value: "momentary", label: "Momentary · active while held" },
+                ],
+            },
+            { label: "Push duration (ms)", key: "pulseDurationMs", type: "number", min: 50, max: 10000 },
             { label: "Accessory address / VPIN", key: "address", type: "number", min: 1, max: 32767 },
             { label: "ON value", key: "activeValue", type: "bittoggle" },
             { label: "ON text", key: "textOn", type: "string" },

@@ -58,6 +58,7 @@ struct ClientSnapshotState
   uint32_t clientId = 0;
   uint8_t stage = 0;
   int accessoryAddress = 1;
+  uint8_t vpinSlot = 0;
 };
 
 static WsInboundItem wsInboundQueue[WS_INBOUND_QUEUE_SIZE] = {};
@@ -234,6 +235,14 @@ static bool configuredLocoInverted[MAX_RUNTIME_LOCOS] = {false};
 static const int MAX_LINEAR_ACCESSORY_ADDRESS = 2048;
 static int8_t turnoutStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
 static int8_t basicAccessoryStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
+static const uint8_t MAX_VPIN_STATE_CACHE = 96;
+struct VpinStateCacheEntry
+{
+  uint16_t vpin = 0;
+  int8_t state = -1;
+};
+static VpinStateCacheEntry vpinStateCache[MAX_VPIN_STATE_CACHE];
+static uint8_t nextVpinReplacementSlot = 0;
 
 static int8_t readTurnoutStateForSignalLogic(uint16_t address)
 {
@@ -410,6 +419,58 @@ static void writeBasicAccessoryState(uint16_t address, bool active)
   dccParseRaw("<a " + String(address) + " " + String(active ? 1 : 0) + ">");
   basicAccessoryStateCache[address] = active ? 1 : 0;
   broadcastMessage("accessoryChanged", "{\"address\":" + String(address) + ",\"active\":" + String(active ? "true" : "false") + "}");
+}
+
+static VpinStateCacheEntry *findVpinState(uint16_t vpin)
+{
+  for (VpinStateCacheEntry &entry : vpinStateCache)
+    if (entry.vpin == vpin) return &entry;
+  return nullptr;
+}
+
+static void cacheVpinState(uint16_t vpin, bool active)
+{
+  VpinStateCacheEntry *entry = findVpinState(vpin);
+  if (!entry)
+  {
+    for (VpinStateCacheEntry &candidate : vpinStateCache)
+      if (!candidate.vpin)
+      {
+        entry = &candidate;
+        break;
+      }
+  }
+  if (!entry)
+  {
+    entry = &vpinStateCache[nextVpinReplacementSlot];
+    nextVpinReplacementSlot = (nextVpinReplacementSlot + 1) % MAX_VPIN_STATE_CACHE;
+  }
+  entry->vpin = vpin;
+  entry->state = active ? 1 : 0;
+}
+
+static int8_t readVpinStateForSignalLogic(uint16_t vpin)
+{
+  VpinStateCacheEntry *entry = findVpinState(vpin);
+  if (entry) return entry->state;
+  const int value = IODevice::read(vpin);
+  return value < 0 ? -1 : (value != 0 ? 1 : 0);
+}
+
+static void writeVpinState(uint16_t vpin, bool active, bool reevaluateSignalLogic = true)
+{
+  if (vpin < 1 || vpin > 32767) return;
+  dccParseRaw("<z " + String(active ? static_cast<int>(vpin) : -static_cast<int>(vpin)) + ">");
+  cacheVpinState(vpin, active);
+  broadcastMessage("vpinChanged", "{\"vpin\":" + String(vpin) + ",\"active\":" + String(active ? "true" : "false") + "}");
+  if (reevaluateSignalLogic)
+    DCCExpressLiteSignalLogic::forceEvaluate();
+}
+
+static void writeSignalOutput(uint16_t address, bool active, bool vpin)
+{
+  if (vpin) writeVpinState(address, active, false);
+  else writeBasicAccessoryState(address, active);
 }
 
 static String programmingResponseData(const String &requestId, const String &action,
@@ -700,6 +761,13 @@ static void sendAccessorySnapshot(uint32_t clientId, int address)
   }
 }
 
+static void sendVpinSnapshot(uint32_t clientId, const VpinStateCacheEntry &entry)
+{
+  sendToClient(clientId, "vpinChanged",
+    "{\"vpin\":" + String(entry.vpin) +
+    ",\"active\":" + String(entry.state > 0 ? "true" : "false") + "}");
+}
+
 static void sendBlockState(uint32_t clientId = 0)
 {
   const String data = DCCExpressLiteRuntimeState::blockStateJson();
@@ -716,6 +784,7 @@ static void startInitialSnapshots(uint32_t clientId)
     snapshot.clientId = clientId;
     snapshot.stage = 0;
     snapshot.accessoryAddress = 1;
+    snapshot.vpinSlot = 0;
     return;
   }
   ++droppedWsControl;
@@ -778,7 +847,7 @@ static void processInitialSnapshots()
         sendBlockState(snapshot.clientId);
         ++snapshot.stage;
         break;
-      default:
+      case 8:
       {
         bool sent = false;
         while (snapshot.accessoryAddress <= MAX_LINEAR_ACCESSORY_ADDRESS)
@@ -789,9 +858,26 @@ static void processInitialSnapshots()
           sent = true;
           break;
         }
+        if (!sent) ++snapshot.stage;
+        break;
+      }
+      case 9:
+      {
+        bool sent = false;
+        while (snapshot.vpinSlot < MAX_VPIN_STATE_CACHE)
+        {
+          const VpinStateCacheEntry &entry = vpinStateCache[snapshot.vpinSlot++];
+          if (!entry.vpin || entry.state < 0) continue;
+          sendVpinSnapshot(snapshot.clientId, entry);
+          sent = true;
+          break;
+        }
         if (!sent) snapshot.active = false;
         break;
       }
+      default:
+        snapshot.active = false;
+        break;
     }
   }
 }
@@ -1430,6 +1516,18 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     return;
   }
 
+  if (type == "setVpin")
+  {
+    const int vpin = getInt(payload["vpin"]);
+    if (vpin < 1 || vpin > 32767)
+    {
+      sendError(clientId, "vpin_out_of_range", uuid);
+      return;
+    }
+    writeVpinState(static_cast<uint16_t>(vpin), getBool(payload["active"]));
+    return;
+  }
+
   if (type == "setSensor")
   {
     const int address = getInt(payload["address"]);
@@ -1760,6 +1858,8 @@ void setupHTTPServer()
 
   memset(turnoutStateCache, -1, sizeof(turnoutStateCache));
   memset(basicAccessoryStateCache, -1, sizeof(basicAccessoryStateCache));
+  memset(vpinStateCache, 0, sizeof(vpinStateCache));
+  nextVpinReplacementSlot = 0;
 
   esp_register_freertos_idle_hook_for_cpu(cpuIdleHook0, 0);
   esp_register_freertos_idle_hook_for_cpu(cpuIdleHook1, 1);
@@ -1789,7 +1889,10 @@ void setupHTTPServer()
     if (state >= 0) turnoutStateCache[address] = state;
   }
   loadLocoConfiguration();
-  DCCExpressLiteSignalLogic::begin(readTurnoutStateForSignalLogic, writeBasicAccessoryState);
+  DCCExpressLiteSignalLogic::begin(
+    readTurnoutStateForSignalLogic,
+    readVpinStateForSignalLogic,
+    writeSignalOutput);
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 

@@ -2,6 +2,16 @@
 
 All notable changes to DCCExpressLite will be documented in this file.
 
+## Unreleased
+
+- Added a general-purpose layout Output Button with DCC accessory and DCC-EX VPIN output modes.
+- Added Toggle, timed Push, and press-and-hold Momentary button behaviours with configurable logical ON value.
+- Added the dedicated `setVpin` WebSocket command, bounded firmware-side VPIN state cache, `vpinChanged` multi-client broadcasts, and VPIN state snapshots for newly connected clients.
+- Added accessory/VPIN selection for turnouts and signals, including VPIN-aware Signal Logic conditions and physical outputs.
+- Made the command station the source of truth for output-button state and forced immediate canvas redraw after accessory and VPIN events.
+- Added a runtime Log tab for raw DCC-EX, I/O, status-polling, and other WebSocket traffic, with TX/RX direction, persistent client-side filters, clear control, and a bounded 200-line buffer.
+- Log capture now starts Disabled on every page load and records nothing until explicitly enabled.
+
 ## 0.1.0-alpha.5 - 2026-08-29
 
 - Added persistent dynamic DCC-EX HAL configuration for PCA9685 servo controllers and MCP23017/PCF8574 input/output expanders.

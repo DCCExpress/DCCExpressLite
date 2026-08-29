@@ -27,6 +27,7 @@ struct SignalCondition
 {
   uint16_t address = 0;
   bool sensor = false;
+  bool vpin = false;
   bool expected = false;
 };
 
@@ -40,6 +41,7 @@ struct SignalRule
 struct SignalGroup
 {
   uint16_t signalAddress = 0;
+  bool vpin = false;
   uint8_t addressLength = 0;
   uint32_t aspectValues[4] = {0, 0, 0, 0};
   SignalAspect defaultAspect = SignalAspect::Red;
@@ -69,7 +71,8 @@ bool running = false;
 bool evaluationPending = false;
 uint32_t lastSensorPollAtMs = 0;
 DCCExpressLiteSignalLogic::TurnoutStateReader readTurnout = nullptr;
-DCCExpressLiteSignalLogic::AccessoryWriter writeAccessory = nullptr;
+DCCExpressLiteSignalLogic::VpinStateReader readVpin = nullptr;
+DCCExpressLiteSignalLogic::OutputWriter writeOutput = nullptr;
 
 SignalAspect parseAspect(const char *value)
 {
@@ -122,7 +125,9 @@ bool readCondition(const SignalCondition &condition)
 {
   const int8_t state = condition.sensor
     ? readSensorState(condition.address)
-    : (readTurnout ? readTurnout(condition.address) : -1);
+    : (condition.vpin
+        ? (readVpin ? readVpin(condition.address) : -1)
+        : (readTurnout ? readTurnout(condition.address) : -1));
   return state >= 0 && (state != 0) == condition.expected;
 }
 
@@ -162,7 +167,7 @@ void evaluateAll()
 
 void processOneAccessoryOutput()
 {
-  if (!writeAccessory) return;
+  if (!writeOutput) return;
 
   for (uint8_t i = 0; i < loadedGroupCount; ++i)
   {
@@ -171,7 +176,7 @@ void processOneAccessoryOutput()
 
     const uint32_t bits = group.aspectValues[aspectIndex(group.desiredAspect)];
     const uint8_t bit = group.outputIndex;
-    writeAccessory(group.signalAddress + bit, ((bits >> bit) & 1U) != 0);
+    writeOutput(group.signalAddress + bit, ((bits >> bit) & 1U) != 0, group.vpin);
 
     ++group.outputIndex;
     if (group.outputIndex >= group.addressLength)
@@ -230,6 +235,16 @@ int resolveElementAddress(JsonDocument &layout, const char *id, int legacyAddres
   return legacyAddress;
 }
 
+bool resolveElementUsesVpin(JsonDocument &layout, const char *id, const char *expectedType)
+{
+  if (!id || !id[0]) return false;
+  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
+    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
+      if (!strcmp(element["id"] | "", id) && isElementType(element, expectedType))
+        return !strcmp(element["outputMode"] | "accessory", "vpin");
+  return false;
+}
+
 void parseRules(JsonDocument &document, JsonDocument &layout)
 {
   enabled = document["enabled"].is<bool>()
@@ -242,7 +257,7 @@ void parseRules(JsonDocument &document, JsonDocument &layout)
     if (loadedGroupCount >= MAX_GROUPS) break;
     const int address = resolveElementAddress(layout, jsonGroup["signalId"] | "",
       jsonGroup["signalAddress"] | 0, "tracksignal2");
-    if (address < 1 || address > 2048) continue;
+    if (address < 1 || address > 32767) continue;
 
     SignalGroup &group = groups[loadedGroupCount++];
     group.signalAddress = static_cast<uint16_t>(address);
@@ -261,12 +276,14 @@ void parseRules(JsonDocument &document, JsonDocument &layout)
         SignalCondition condition;
         const char *type = jsonCondition["type"] | "turnout";
         condition.sensor = !strcmp(type, "sensor");
+        condition.vpin = !condition.sensor && resolveElementUsesVpin(
+          layout, jsonCondition["turnoutId"] | "", "turnout");
         const int inputAddress = condition.sensor
           ? resolveElementAddress(layout, jsonCondition["sensorId"] | "",
               jsonCondition["sensorAddress"] | 0, "tracksensor")
           : resolveElementAddress(layout, jsonCondition["turnoutId"] | "",
               jsonCondition["turnoutAddress"] | 0, "turnout");
-        if (inputAddress < 1 || inputAddress > 2048)
+        if (inputAddress < 1 || inputAddress > (condition.vpin ? 32767 : 2048))
         {
           ruleValid = false;
           break;
@@ -299,6 +316,7 @@ void loadSignalDefinitions(JsonDocument &layout)
       {
         SignalGroup &group = groups[i];
         if (group.signalAddress != address) continue;
+        group.vpin = !strcmp(element["outputMode"] | "accessory", "vpin");
         group.addressLength = constrain(static_cast<int>(element["addressLength"] | 5), 1, 8);
         group.aspectValues[aspectIndex(SignalAspect::Red)] = element["valueRed"] | 0;
         group.aspectValues[aspectIndex(SignalAspect::Green)] = element["valueGreen"] | 0;
@@ -310,10 +328,14 @@ void loadSignalDefinitions(JsonDocument &layout)
 }
 }
 
-void DCCExpressLiteSignalLogic::begin(TurnoutStateReader turnoutReader, AccessoryWriter accessoryWriter)
+void DCCExpressLiteSignalLogic::begin(
+  TurnoutStateReader turnoutReader,
+  VpinStateReader vpinReader,
+  OutputWriter outputWriter)
 {
   readTurnout = turnoutReader;
-  writeAccessory = accessoryWriter;
+  readVpin = vpinReader;
+  writeOutput = outputWriter;
 
   if (!LittleFS.exists(RULES_PATH))
   {

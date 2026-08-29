@@ -16,7 +16,8 @@ Track elements define the visible railway. Rotation changes their geometric conn
 ## Control and information
 
 - **Sensor** — reads a DCC-EX sensor address and can be used by signal rules.
-- **Signal** — displays an aspect and writes an aspect bit pattern to consecutive accessory addresses.
+- **Signal** — displays an aspect and writes an aspect bit pattern to consecutive DCC accessory addresses or DCC-EX VPINs.
+- **Output Button** — controls one DCC accessory address or DCC-EX VPIN as a toggle, timed push pulse, or press-and-hold momentary output.
 - **Block** — represents an occupancy/reservation section and can hold a locomotive assignment.
 - **Route Button** — stores an ordered set of turnout element IDs and required physical states.
 - **Automatic Route** — requests a path between start and destination block IDs.
@@ -35,7 +36,21 @@ Block occupancy is runtime data and is deliberately not written into `layout.jso
 
 ## Address rules
 
-- DCC accessory elements use linear addresses.
+- DCC accessory elements use linear addresses and send `<a address 0|1>` through the command station.
+- DCC-EX VPIN elements use virtual pin numbers and send the equivalent digital `<z VPIN>` / `<z -VPIN>` operation through the dedicated WebSocket API.
 - Signal address length is configurable from 1 to 8; the normal DigiSignal setup uses 5.
 - Avoid overlapping signal output ranges unless the hardware is intentionally shared.
 - Run the global integrity checker after deleting or replacing elements.
+
+## Output Button behaviour
+
+Select an Output Button in Edit mode and configure:
+
+- **Output type** — `DCC accessory` or `DCC-EX VPIN`.
+- **Accessory address / VPIN** — the physical output identifier.
+- **ON value** — whether logical ON writes `1` or `0`; OFF always writes the inverse.
+- **Toggle** — each press alternates between logical ON and OFF.
+- **Push** — writes ON, waits for the configured pulse duration, then writes OFF automatically. The duration is limited to 50–10000 ms and defaults to 250 ms.
+- **Momentary** — writes ON when pressed and OFF when released. Pointer capture also releases the output when a touch is cancelled or moves outside the button.
+
+Output state is confirmed by the EX-CSB1 rather than only being changed optimistically in one browser. The firmware broadcasts the resulting `accessoryChanged` or `vpinChanged` event so every connected client redraws the same state.

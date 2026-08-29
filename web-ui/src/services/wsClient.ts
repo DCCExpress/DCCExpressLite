@@ -19,6 +19,9 @@ type StatusListener =
 type MessageListener =
     (message: TypedServerWsMessage) => void;
 
+type OutgoingMessageListener =
+    (message: ClientWsMessage) => void;
+
 type TypedMessageListener<
     TType extends ServerWsMessageType
 > = (
@@ -49,6 +52,9 @@ class WsClient {
 
     private messageListeners =
         new Set<MessageListener>();
+
+    private outgoingMessageListeners =
+        new Set<OutgoingMessageListener>();
 
     private typedListeners =
         new Map<string, Set<AnyTypedMessageListener>>();
@@ -181,6 +187,9 @@ class WsClient {
         }
 
         this.socket.send(JSON.stringify(message));
+        this.outgoingMessageListeners.forEach(listener =>
+            listener(message)
+        );
         return true;
     }
 
@@ -198,6 +207,14 @@ class WsClient {
 
         return () => {
             this.messageListeners.delete(listener);
+        };
+    }
+
+    public subscribeOutgoingMessages(listener: OutgoingMessageListener): () => void {
+        this.outgoingMessageListeners.add(listener);
+
+        return () => {
+            this.outgoingMessageListeners.delete(listener);
         };
     }
 

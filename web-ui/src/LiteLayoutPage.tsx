@@ -42,6 +42,7 @@ import TrackCanvas from "@/components/TrackCanvas";
 import FullscreenLoader from "@/components/FullscreenLoader";
 import SignalLogicDialog from "@/components/SignalLogicDialog";
 import IntegrityCheckDialog from "@/components/IntegrityCheckDialog";
+import LayoutRuntimeLogPanel from "@/components/LayoutRuntimeLogPanel";
 import VisibilitySettings from "@/components/VisibilitySettings";
 import { useCommandCenter } from "@/context/CommandCenterContext";
 import { useLayoutPageShortcuts } from "@/hooks/layout/useLayoutPageShortcuts";
@@ -661,7 +662,7 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
     for (const element of layout.getAllElements()) {
       if (isTurnoutElement(element) && element.outputMode === "accessory" && element.turnoutAddress === data.address) {
         element.turnoutClosed = data.closed;
-      } else if (element instanceof TrackTurnoutDoubleElementView) {
+      } else if (element instanceof TrackTurnoutDoubleElementView && element.outputMode === "accessory") {
         if (element.turnout1Address === data.address) element.turnout1Closed = data.closed;
         if (element.turnout2Address === data.address) element.turnout2Closed = data.closed;
       }
@@ -689,6 +690,23 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
         element.barrierClosed = data.active === element.basicAccessoryClosedValue;
       }
     }
+    invalidate();
+  }), [layout, invalidate]);
+
+  useEffect(() => wsClient.on("vpinChanged", data => {
+    for (const element of layout.getAllElements()) {
+      if (isTurnoutElement(element) && element.outputMode === "vpin" && element.turnoutAddress === data.vpin) {
+        element.turnoutClosed = data.active;
+      } else if (element instanceof TrackTurnoutDoubleElementView && element.outputMode === "vpin") {
+        if (element.turnout1Address === data.vpin) element.turnout1Closed = data.active;
+        if (element.turnout2Address === data.vpin) element.turnout2Closed = data.active;
+      } else if (element instanceof TrackSignalElementView && element.outputMode === "vpin" && element.address <= data.vpin && element.lastAddress >= data.vpin) {
+        element.setValue(data.vpin, data.active);
+      } else if (element instanceof ButtonElementView && element.outputMode === "vpin" && element.address === data.vpin) {
+        element.on = data.active === element.activeValue;
+      }
+    }
+    layout.checkRoutes();
     invalidate();
   }), [layout, invalidate]);
 
@@ -908,13 +926,13 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
               ) : (
                 <Tabs
                   defaultValue="info"
-                  keepMounted={false}
                   className="lite-runtime-tabs"
                   onChange={value => { if (value === "devices") void loadHardwareDevices(); }}
                 >
                   <Tabs.List grow mb="sm">
                     <Tabs.Tab value="info">Info</Tabs.Tab>
                     <Tabs.Tab value="devices">Devices</Tabs.Tab>
+                    <Tabs.Tab value="log">Log</Tabs.Tab>
                   </Tabs.List>
                   <Tabs.Panel value="info" className="lite-info-tab-panel">
                     <DccExInfoPanel
@@ -930,6 +948,9 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
                       error={devicesError}
                       onRefresh={() => void loadHardwareDevices()}
                     />
+                  </Tabs.Panel>
+                  <Tabs.Panel value="log" className="lite-info-tab-panel">
+                    <LayoutRuntimeLogPanel />
                   </Tabs.Panel>
                 </Tabs>
               )}

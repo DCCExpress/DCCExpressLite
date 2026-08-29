@@ -7,7 +7,7 @@ import TrackTurnoutDoubleElementView from "../../models/editor/elements/TrackTur
 import { TrackTurnoutLeftElementView } from "../../models/editor/elements/TrackTurnoutLeftElementView";
 import { TrackTurnoutRightElementView } from "../../models/editor/elements/TrackTurnoutRightElementView";
 import ElementPreview from "../../models/editor/rendering/ElementPreviewRenderer";
-import { wsApi } from "../../services/wsApi";
+import { sendTurnoutOutput } from "../../services/layoutOutput";
 import { createDoubleTurnoutPreview, createTurnoutPreview } from "./previewFactories";
 import type { PropertyChangeHandler } from "./propertyPanelTypes";
 
@@ -86,7 +86,8 @@ function setDoubleTurnoutPosition(
   selectedElement: TrackTurnoutDoubleElementView,
   position: DoubleTurnoutPosition
 ): void {
-  wsApi.setTurnout(
+  sendTurnoutOutput(
+    selectedElement.outputMode,
     selectedElement.turnout1Address,
     getPhysicalValueForLogicalState(
       selectedElement.turnout1ClosedValue,
@@ -94,7 +95,8 @@ function setDoubleTurnoutPosition(
     )
   );
 
-  wsApi.setTurnout(
+  sendTurnoutOutput(
+    selectedElement.outputMode,
     selectedElement.turnout2Address,
     getPhysicalValueForLogicalState(
       selectedElement.turnout2ClosedValue,
@@ -243,7 +245,8 @@ export default function TurnoutBitPropertyEditor({
             width={40}
             height={40}
             onClick={() => {
-              wsApi.setTurnout(
+              sendTurnoutOutput(
+                selectedElement.outputMode,
                 selectedElement.turnoutAddress,
                 getPhysicalValueForLogicalState(selectedElement.turnoutClosedValue, true)
               );
@@ -262,7 +265,8 @@ export default function TurnoutBitPropertyEditor({
             width={40}
             height={40}
             onClick={() => {
-              wsApi.setTurnout(
+              sendTurnoutOutput(
+                selectedElement.outputMode,
                 selectedElement.turnoutAddress,
                 getPhysicalValueForLogicalState(selectedElement.turnoutClosedValue, false)
               );

@@ -29,9 +29,7 @@ export function sendBinaryOutput(
   }
 
   if (mode === "vpin") {
-    return wsApi.writeDccExDirectCommand(
-      `<z ${active ? address : -address}>`
-    );
+    return wsApi.setVpin(address, active);
   }
 
   return wsApi.setBasicAccessory(address, active);

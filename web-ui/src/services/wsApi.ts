@@ -232,6 +232,10 @@ class WebSocketApi {
     return this.send("setBasicAccessory", { address, active });
   }
 
+  setVpin(vpin: number, active: boolean): boolean {
+    return this.send("setVpin", { vpin, active });
+  }
+
   programmingCommand(
     requestId: string,
     action: ProgrammingCommandAction,

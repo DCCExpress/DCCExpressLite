@@ -37,7 +37,9 @@ The web installer is the only supported installation method. It flashes one veri
 - Locomotive editor, dual throttle panels, functions and per-device image mirroring.
 - Configurable Bluetooth/USB gamepad control with multiple-controller selection and client-local mappings.
 - Track power, emergency stop, turnouts, accessories, sensors, signals and routes.
+- DCC accessory and DCC-EX VPIN outputs for turnouts, signals and configurable Toggle/Push/Momentary layout buttons.
 - Route sequencing, route highlighting and cached accessory states.
+- Multi-client accessory/VPIN state synchronization and a filterable, bounded live I/O log.
 - Persistent block occupancy and turnout runtime state shared between clients.
 - Network configuration stored on the ESP32.
 - Runtime, flash, processor, temperature and HAL/I²C device information.

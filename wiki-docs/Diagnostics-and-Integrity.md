@@ -48,3 +48,17 @@ Entering CRITICAL opens one acknowledgement dialog. It does not reopen for every
 
 The Devices tab lists configured DCC-EX HAL devices, I²C addresses, GPIO/virtual-pin ranges, status, and a live I²C bus scan. An address-based type guess can be ambiguous.
 
+## Log tab
+
+The runtime Log tab displays live command and state traffic without requiring a USB serial monitor. Logging starts **Disabled** after every page load and does not collect messages until **Enabled** is selected.
+
+Each entry shows time, direction (`TX`, `RX`, or `SYS`), message type, and payload. Client-local filters select:
+
+- **Raw DCC-EX** — firmware `rawInfo`, acknowledgements, and direct DCC-EX commands/responses;
+- **I/O** — locomotive, turnout, accessory, VPIN, sensor, block, and power commands/events;
+- **Status polling** — frequent status and runtime telemetry, hidden by default;
+- **Other WS** — remaining WebSocket messages, hidden by default.
+
+The selected filters are saved in browser local storage. **Clear** removes the visible session buffer. At most 200 entries are retained; after that, the oldest entry is discarded for every new one, so logging cannot grow browser memory without limit.
+
+Raw and telemetry delivery is diagnostic and may be dropped by the firmware when a WebSocket client is busy. Control commands and state synchronization retain priority.

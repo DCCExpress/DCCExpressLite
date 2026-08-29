@@ -217,6 +217,7 @@ export interface TrackCrossingElementDto extends TrackElementDto {
 }
 
 export type OutputCommandModeDto = "accessory" | "vpin";
+export type ButtonBehaviorDto = "toggle" | "push" | "momentary";
 
 export interface TrackTurnoutLeftElementDto extends TrackElementDto {
   type: "trackturnoutleft";
@@ -263,6 +264,8 @@ export interface TrackSensorElementDto extends TrackElementDto {
 export interface ButtonElementDto extends BaseElementDto {
   type: "button";
   outputMode?: OutputCommandModeDto;
+  behavior?: ButtonBehaviorDto;
+  pulseDurationMs?: number;
   colorOn: string;
   colorOff: string;
   textOn: string;

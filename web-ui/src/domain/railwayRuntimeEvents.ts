@@ -30,6 +30,11 @@ export type AccessoryChangedPayload = {
   active: boolean;
 };
 
+export type VpinChangedPayload = {
+  vpin: number;
+  active: boolean;
+};
+
 export type SensorChangedPayload = {
   address: number;
   on: boolean;

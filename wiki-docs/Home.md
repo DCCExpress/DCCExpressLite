@@ -22,11 +22,13 @@ DCCExpressLite is a self-contained browser controller for the **EX-CSB1** comman
 - Visual layout editor with persistent client-side zoom and position
 - Persistent block occupancy shared between connected clients
 - Physical DCC accessory turnout control
+- DCC accessory and DCC-EX VPIN output control with Toggle, Push, and Momentary buttons
 - Basic route buttons and automatic block-to-block routes
 - ID-based signal automation driven by turnouts and sensors
 - Locomotive, accessory, and DigiTools decoder programming
 - Root-based LittleFS file manager
 - Release-independent export/import including locomotive images and signal rules
 - WebSocket reconnect, multi-client support, diagnostics, and integrity checking
+- Filterable live DCC-EX and I/O logging with bounded browser memory use
 
 The **HELP** button in the Layout Editor always opens this Wiki.

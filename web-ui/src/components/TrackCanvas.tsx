@@ -157,6 +157,7 @@ export default function TrackCanvas({
   const signalAspectPopoverRef = useRef(signalAspectPopover);
   const doubleTurnoutPopoverRef = useRef(doubleTurnoutPopover);
   const commandCenterRef = useRef(commandCenter);
+  const pressedClickableRef = useRef<BaseElementView | null>(null);
 
   const requestDraw = useCallback(() => {
     if (drawRafRef.current !== null) {
@@ -535,7 +536,7 @@ export default function TrackCanvas({
       hitElement: BaseElementView | null,
       ev: MouseEvent | PointerEvent
     ): boolean => {
-      return handleTrackCanvasClickableDown(
+      const handled = handleTrackCanvasClickableDown(
         hitElement,
         ev,
         {
@@ -545,13 +546,17 @@ export default function TrackCanvas({
           setBusy,
         }
       );
+      if (handled) pressedClickableRef.current = hitElement;
+      return handled;
     };
 
     const handleClickableUp = (
       hitElement: BaseElementView | null,
       ev: MouseEvent | PointerEvent
     ): boolean => {
-      return handleTrackCanvasClickableUp(hitElement, ev);
+      const pressedElement = pressedClickableRef.current ?? hitElement;
+      pressedClickableRef.current = null;
+      return handleTrackCanvasClickableUp(pressedElement, ev);
     };
 
     const handleMouseDown = (ev: MouseEvent) => {
@@ -642,6 +647,9 @@ export default function TrackCanvas({
     };
 
     const handleMouseLeave = () => {
+      if (pressedClickableRef.current) {
+        handleClickableUp(pressedClickableRef.current, new MouseEvent("mouseup"));
+      }
       stopInteraction();
       setHoverGrid(null);
     };
@@ -943,6 +951,10 @@ export default function TrackCanvas({
 
     const handlePointerCancel = (ev: PointerEvent) => {
       if (ev.pointerType !== "touch") return;
+
+      if (pressedClickableRef.current) {
+        handleClickableUp(pressedClickableRef.current, ev);
+      }
 
       touchPointsRef.current.delete(ev.pointerId);
       pointerPanRef.current.activePointerId = null;

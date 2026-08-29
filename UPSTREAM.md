@@ -18,6 +18,8 @@ DCCExpressLite starts from the upstream `mySetup.h` extension point.
 - `HTTPServer.cpp/.h` — HTTP routes, WebSocket API and LittleFS access.
 - `HTTPSerialWrapper.cpp/.h` — captures direct DCC-EX parser responses for
   WebSocket clients without replacing the upstream USB serial stream.
+- `DCCExpressLiteSignalLogic.cpp/.h` — ID-based signal rules, accessory/VPIN
+  input evaluation, and sequential physical signal output.
 - `DCCExpressLiteDeviceConfig.cpp/.h` — validates and persists the external
   I2C HAL configuration and creates enabled devices during early startup.
 - `NetworkSettings.cpp/.h` — saved Wi-Fi credentials and serial commands.
