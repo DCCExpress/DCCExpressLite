@@ -390,7 +390,7 @@ function DccExInfoPanel({
 }
 
 const HAL_DRIVER_FAMILIES = [
-  "GPIO", "PCA9685", "MCP23017 / MCP23008", "PCF8574", "PCA9555 / TCA9555",
+  "GPIO", "PCA9685", "MCP23017 / MCP23008", "PCF8574 / PCF8575", "PCA9555 / TCA9555",
   "ADS111x", "VL53L0X", "HC-SR04", "DFPlayer", "EX-Turntable", "EX-IOExpander",
 ];
 
@@ -688,6 +688,20 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
         element.on = data.active === element.activeValue;
       } else if (element instanceof TrackLevelCrossingElementView && element.basicAccessoryAddress === data.address) {
         element.barrierClosed = data.active === element.basicAccessoryClosedValue;
+      }
+    }
+    invalidate();
+  }), [layout, invalidate]);
+
+  useEffect(() => wsClient.on("sensorSnapshot", data => {
+    for (const [baseAddress, activeBits, knownBits] of data.groups) {
+      for (const element of layout.getAllElements()) {
+        if (!(element instanceof TrackSensorElementView)) continue;
+        const offset = element.address - baseAddress;
+        if (offset < 0 || offset > 15) continue;
+        const bit = 1 << offset;
+        if ((knownBits & bit) === 0) continue;
+        element.on = (activeBits & bit) !== 0;
       }
     }
     invalidate();

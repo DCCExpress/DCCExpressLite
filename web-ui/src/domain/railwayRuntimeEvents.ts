@@ -40,5 +40,10 @@ export type SensorChangedPayload = {
   on: boolean;
 };
 
+export type SensorSnapshotPayload = {
+  /** Tuples are [baseAddress, activeBits, knownBits], covering 16 addresses. */
+  groups: Array<[number, number, number]>;
+};
+
 export type BlockStateChangedPayload =
   Record<string, BlockState>;

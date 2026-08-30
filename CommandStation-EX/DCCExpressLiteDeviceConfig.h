@@ -8,10 +8,11 @@ class DCCExpressLiteDeviceConfig
 public:
   static constexpr const char *CONFIG_PATH = "/devices.json";
   static constexpr const char *TEMP_PATH = "/devices.tmp";
-  static constexpr size_t MAX_CONFIG_BYTES = 8192;
+  static constexpr size_t MAX_CONFIG_BYTES = 32768;
 
   static bool ensureFilesystem();
   static bool setupHal();
+  static bool setupPins();
   static bool validateAndCommit(const char *temporaryPath, String &error);
 
 private:

@@ -4,6 +4,12 @@ All notable changes to DCCExpressLite will be documented in this file.
 
 ## Unreleased
 
+## 0.1.0-alpha.6 - 2026-08-30
+
+- Added PCF8575 16-channel I2C input/output expanders to dynamic device configuration, boot-time HAL creation, validation and the web UI.
+- Added persistent PCA9685 channel endpoints, movement duration, PWM hold option and synchronized OFF/ON testing from the Device Configuration page.
+- Reworked Device Configuration into a device-list and selected-device pin editor with WebSocket and live HAL status indicators.
+- Added per-pin Input/Output configuration for MCP23017, PCF8574 and PCF8575 devices, including DCC-EX sensor IDs, pull-ups, output IDs, inversion, initial state and output testing.
 - Added a general-purpose layout Output Button with DCC accessory and DCC-EX VPIN output modes.
 - Added Toggle, timed Push, and press-and-hold Momentary button behaviours with configurable logical ON value.
 - Added the dedicated `setVpin` WebSocket command, bounded firmware-side VPIN state cache, `vpinChanged` multi-client broadcasts, and VPIN state snapshots for newly connected clients.
@@ -11,6 +17,10 @@ All notable changes to DCCExpressLite will be documented in this file.
 - Made the command station the source of truth for output-button state and forced immediate canvas redraw after accessory and VPIN events.
 - Added a runtime Log tab for raw DCC-EX, I/O, status-polling, and other WebSocket traffic, with TX/RX direction, persistent client-side filters, clear control, and a bounded 200-line buffer.
 - Log capture now starts Disabled on every page load and records nothing until explicitly enabled.
+- Added compact sensor state snapshots and live input-state indicators to keep all clients synchronized without large RAM or network overhead.
+- Added a lightweight WebSocket heartbeat with bounded reconnect handling, without sending periodic commands through the DCC-EX parser.
+- Widened the Device Configuration workspace and added an active Signal Logic warning before manual hardware testing.
+- Updated the starter layout and HAL configuration from the tested EX-CSB1, including sample inputs, a VPIN signal and an Output Button.
 
 ## 0.1.0-alpha.5 - 2026-08-29
 

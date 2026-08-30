@@ -62,3 +62,7 @@ Each entry shows time, direction (`TX`, `RX`, or `SYS`), message type, and paylo
 The selected filters are saved in browser local storage. **Clear** removes the visible session buffer. At most 200 entries are retained; after that, the oldest entry is discarded for every new one, so logging cannot grow browser memory without limit.
 
 Raw and telemetry delivery is diagnostic and may be dropped by the firmware when a WebSocket client is busy. Control commands and state synchronization retain priority.
+
+## Console serial connection
+
+The Console can use the normal WebSocket command channel without USB. Its optional direct USB serial connection uses the Web Serial API, which desktop Chromium exposes only in secure contexts. For the embedded HTTP interface, see the Chrome flag and safety note in [Installation and first start](Installation-and-First-Start#embedded-console-and-web-serial).

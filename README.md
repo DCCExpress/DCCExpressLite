@@ -46,7 +46,14 @@ The web installer is the only supported installation method. It flashes one veri
 - Layout, locomotive and locomotive-image import/export.
 - Automatic WebSocket reconnect and refresh-safe static file delivery.
 
-After network setup, open `http://dccex.local` or the IP address shown on the EX-CSB1 display.
+## Opening the command center
+
+After network setup, open either address from a device on the same network:
+
+- `http://dccex.local` — the stable local mDNS name;
+- `http://<device-ip>` — the numeric address shown on the EX-CSB1 display, for example `http://192.168.1.143`.
+
+The numeric address can change when the router assigns a new DHCP lease. If the `.local` name is not resolved by a particular client, use the address shown on the display.
 
 The complete user guide covers the layout editor, elements, turnouts, routes, signals, automation, decoder programming, backup/restore and diagnostics in the **[DCCExpressLite Wiki](https://github.com/DCCExpress/DCCExpressLite/wiki)**.
 
@@ -57,6 +64,16 @@ The same network setup is available in any 115200-baud serial monitor:
 ```
 
 The command saves the credentials and restarts the EX-CSB1. Use `<WIFI?>` to check whether credentials are stored or `<WIFI CLEAR>` to erase them and return to setup-hotspot mode.
+
+### Web Serial from the embedded Console
+
+The Console page can connect directly to the EX-CSB1 USB serial port only in a browser secure context. The public HTTPS Web Installer already satisfies this requirement. When using the embedded HTTP interface, desktop Chrome may require this development flag:
+
+```text
+chrome://flags/#unsafely-treat-insecure-origin-as-secure
+```
+
+Add the exact origins that you use, for example `http://192.168.1.143` and/or `http://dccex.local`, then relaunch Chrome. Add only trusted local EX-CSB1 origins: this flag deliberately relaxes a browser security restriction. It is not required for ordinary WebSocket control, only for direct browser access to the USB serial port.
 
 ## Repository layout
 

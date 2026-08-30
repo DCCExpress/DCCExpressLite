@@ -41,7 +41,7 @@ Only six upstream files contain DCCExpressLite integration hooks:
 5. `IODevice.cpp` calls the optional weak `dccExpressLiteHalSetup()` hook
    before applying the standard PCA9685/MCP23017 defaults. A valid Lite
    `/devices.json` configuration suppresses those defaults and creates the
-   configured PCA9685, MCP23017 and PCF8574 instances instead.
+   configured PCA9685, MCP23017, PCF8574 and PCF8575 instances instead.
 6. `WifiESP32.cpp` honours `DCCEXPRESSLITE_ENABLE_DCCEX_PORT`. The Lite
    configuration sets it to `0`, retaining upstream ESP32 Wi-Fi connection and
    reconnection management while omitting the optional port 2560

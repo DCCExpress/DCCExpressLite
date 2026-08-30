@@ -107,6 +107,20 @@ export default function RuntimeLayoutOverlay({
     invalidate();
   }), [layout, invalidate]);
 
+  useEffect(() => wsClient.on("sensorSnapshot", data => {
+    for (const [baseAddress, activeBits, knownBits] of data.groups) {
+      for (const element of layout.getAllElements()) {
+        if (!(element instanceof TrackSensorElementView)) continue;
+        const offset = element.address - baseAddress;
+        if (offset < 0 || offset > 15) continue;
+        const bit = 1 << offset;
+        if ((knownBits & bit) === 0) continue;
+        element.on = (activeBits & bit) !== 0;
+      }
+    }
+    invalidate();
+  }), [layout, invalidate]);
+
   useEffect(() => wsClient.on("accessoryChanged", data => {
     for (const element of layout.getAllElements()) {
       if (element instanceof TrackSignalElementView && element.outputMode === "accessory" && element.address <= data.address && element.lastAddress >= data.address) {

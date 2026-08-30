@@ -1,6 +1,7 @@
 #include "DCCExpressLite.h"
 
 #include "DCCEX.h"
+#include "DCCExpressLiteDeviceConfig.h"
 #include "HTTPServer.h"
 #include "I2CManager.h"
 #include "NetworkSettings.h"
@@ -30,7 +31,8 @@ const char *configuredDeviceType(VPIN firstVpin, int pinCount, uint8_t address)
     return "PCA9685 PWM / servo";
   if (pinCount == 16 && ((firstVpin == 164 && address == 0x20) || (firstVpin == 180 && address == 0x21)))
     return "MCP23017 GPIO expander";
-  if (address >= 0x20 && address <= 0x27) return "I2C GPIO expander";
+  if (address >= 0x20 && address <= 0x27)
+    return pinCount == 8 ? "PCF8574 GPIO expander" : "16-bit I2C GPIO expander (MCP23017 / PCF8575)";
   if (address >= 0x40 && address <= 0x47) return "I2C PWM / servo device";
   if (address >= 0x48 && address <= 0x4f) return "I2C analogue / UART device";
   return address ? "Configured I2C HAL device" : "Configured HAL device";
@@ -41,6 +43,10 @@ void DCCExpressLite::begin()
 {
   if (started) return;
   started = true;
+
+  // DCC::begin() has already restored legacy EEPROM sensor/output entries.
+  // Apply the LittleFS device pin map afterwards so it remains authoritative.
+  DCCExpressLiteDeviceConfig::setupPins();
 
   NetworkSettings::begin();
   if (NetworkSettings::hasStationConfig())

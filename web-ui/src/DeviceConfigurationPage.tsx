@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Divider,
+  Grid,
   Group,
   NumberInput,
   Select,
@@ -34,6 +35,13 @@ import {
 } from "react";
 
 import AppModal from "@/components/common/AppModal";
+import { loadSignalLogicRulesWs } from "@/api/signalLogicWsApi";
+import type { SignalLogicRuntimeStateDto } from "@domain/signalLogic";
+import { wsApi } from "@/services/wsApi";
+import {
+  wsClient,
+  type WsConnectionStatus,
+} from "@/services/wsClient";
 
 type Props = {
   onBack: () => void;
@@ -42,7 +50,8 @@ type Props = {
 export type DeviceType =
   | "pca9685"
   | "mcp23017"
-  | "pcf8574";
+  | "pcf8574"
+  | "pcf8575";
 
 export type DeviceConfiguration = {
   id: string;
@@ -54,6 +63,25 @@ export type DeviceConfiguration = {
   pinCount: number;
   frequency?: number;
   interruptPin?: number | null;
+  servoChannels?: ServoChannelConfiguration[];
+  digitalChannels?: DigitalChannelConfiguration[];
+};
+
+export type ServoChannelConfiguration = {
+  channel: number;
+  offPosition: number;
+  onPosition: number;
+  durationMs: number;
+  keepPowered: boolean;
+};
+
+export type DigitalChannelConfiguration = {
+  channel: number;
+  mode: "input" | "output";
+  id: number;
+  pullUp?: boolean;
+  inverted?: boolean;
+  initialState?: boolean;
 };
 
 export type DeviceConfigurationDocument = {
@@ -76,7 +104,25 @@ export function isDeviceConfigurationDocument(
       typeof device.enabled === "boolean" &&
       Number.isInteger(device.address) &&
       Number.isInteger(device.firstVpin) &&
-      Number.isInteger(device.pinCount);
+      Number.isInteger(device.pinCount) &&
+      (device.servoChannels === undefined || (
+        Array.isArray(device.servoChannels) &&
+        device.servoChannels.every(channel =>
+          Number.isInteger(channel.channel) &&
+          Number.isInteger(channel.offPosition) &&
+          Number.isInteger(channel.onPosition) &&
+          Number.isInteger(channel.durationMs) &&
+          typeof channel.keepPowered === "boolean"
+        )
+      )) &&
+      (device.digitalChannels === undefined || (
+        Array.isArray(device.digitalChannels) &&
+        device.digitalChannels.every(channel =>
+          Number.isInteger(channel.channel) &&
+          (channel.mode === "input" || channel.mode === "output") &&
+          Number.isInteger(channel.id)
+        )
+      ));
   });
 }
 
@@ -101,6 +147,22 @@ type DeviceDefinition = {
   defaultAddress: number;
   defaultFirstVpin: number;
   color: string;
+};
+
+type RuntimeConfiguredDevice = {
+  address: number | null;
+  firstVpin: number;
+  lastVpin: number;
+  state: string;
+  online: boolean;
+};
+
+type HardwareDevicesResponse = {
+  configuredDevices?: RuntimeConfiguredDevice[];
+  i2cDevices?: Array<{
+    addressHex?: string;
+    address?: number;
+  }>;
 };
 
 const STORAGE_KEY =
@@ -142,6 +204,17 @@ const DEVICE_DEFINITIONS: Record<
     defaultAddress: 0x22,
     defaultFirstVpin: 200,
     color: "teal",
+  },
+  pcf8575: {
+    type: "pcf8575",
+    label: "PCF8575",
+    description: "16-channel digital input/output expander",
+    pinCount: 16,
+    addressMin: 0x20,
+    addressMax: 0x27,
+    defaultAddress: 0x23,
+    defaultFirstVpin: 208,
+    color: "blue",
   },
 };
 
@@ -193,6 +266,33 @@ function createForm(type: DeviceType): DeviceForm {
     frequency: 50,
     interruptPin: null,
   };
+}
+
+const DEFAULT_SERVO_CHANNEL: Omit<
+  ServoChannelConfiguration,
+  "channel"
+> = {
+  offPosition: 205,
+  onPosition: 410,
+  durationMs: 500,
+  keepPowered: false,
+};
+
+function servoChannelConfiguration(
+  device: DeviceConfiguration,
+  channel: number
+): ServoChannelConfiguration {
+  return device.servoChannels?.find(item => item.channel === channel) ?? {
+    channel,
+    ...DEFAULT_SERVO_CHANNEL,
+  };
+}
+
+function digitalChannelConfiguration(
+  device: DeviceConfiguration,
+  channel: number
+): DigitalChannelConfiguration | null {
+  return device.digitalChannels?.find(item => item.channel === channel) ?? null;
 }
 
 function loadDraft(): DeviceConfiguration[] {
@@ -248,6 +348,18 @@ export default function DeviceConfigurationPage({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detectedAddresses, setDetectedAddresses] = useState<string[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [wsStatus, setWsStatus] =
+    useState<WsConnectionStatus>(() => wsClient.getStatus());
+  const [runtimeDevices, setRuntimeDevices] =
+    useState<RuntimeConfiguredDevice[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] =
+    useState<string | null>(null);
+  const [servoTestStates, setServoTestStates] =
+    useState<Record<number, boolean>>({});
+  const [signalLogicState, setSignalLogicState] =
+    useState<SignalLogicRuntimeStateDto | null>(null);
+  const [sensorStates, setSensorStates] =
+    useState<Record<number, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -277,6 +389,95 @@ export default function DeviceConfigurationPage({
     })();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unsubscribeStatus = wsClient.subscribeStatus(status => {
+      setWsStatus(status);
+      if (status !== "connected") {
+        setRuntimeDevices([]);
+        setSignalLogicState(null);
+        setSensorStates({});
+        return;
+      }
+
+      void fetch("/api/devices", { cache: "no-store" })
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json() as Promise<HardwareDevicesResponse>;
+        })
+        .then(snapshot => {
+          if (cancelled) return;
+          setRuntimeDevices(
+            Array.isArray(snapshot.configuredDevices)
+              ? snapshot.configuredDevices
+              : []
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setRuntimeDevices([]);
+        });
+
+      void loadSignalLogicRulesWs()
+        .then(result => {
+          if (!cancelled) setSignalLogicState(result.state);
+        })
+        .catch(() => {
+          if (!cancelled) setSignalLogicState(null);
+        });
+
+      wsApi.getLayoutRuntimeSnapshot();
+    });
+    const unsubscribeSignalState = wsClient.on(
+      "signalLogicStateChanged",
+      state => setSignalLogicState(state)
+    );
+    const unsubscribeSignalResponse = wsClient.on(
+      "signalLogicResponse",
+      response => {
+        if (response.state) setSignalLogicState(response.state);
+      }
+    );
+    const unsubscribeSensorChanged = wsClient.on(
+      "sensorChanged",
+      sensor => setSensorStates(current => ({
+        ...current,
+        [sensor.address]: sensor.on,
+      }))
+    );
+    const unsubscribeSensorSnapshot = wsClient.on(
+      "sensorSnapshot",
+      snapshot => {
+        const next: Record<number, boolean> = {};
+        for (const [baseAddress, activeBits, knownBits] of snapshot.groups) {
+          for (let offset = 0; offset < 16; offset++) {
+            const bit = 1 << offset;
+            if ((knownBits & bit) !== 0) {
+              next[baseAddress + offset] = (activeBits & bit) !== 0;
+            }
+          }
+        }
+        setSensorStates(next);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      unsubscribeStatus();
+      unsubscribeSignalState();
+      unsubscribeSignalResponse();
+      unsubscribeSensorChanged();
+      unsubscribeSensorSnapshot();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (devices.length === 0) {
+      setSelectedDeviceId(null);
+    } else if (!selectedDeviceId || !devices.some(device => device.id === selectedDeviceId)) {
+      setSelectedDeviceId(devices[0]!.id);
+    }
+  }, [devices, selectedDeviceId]);
 
   const definition = DEVICE_DEFINITIONS[form.type];
   const parsedAddress = parseAddress(form.address);
@@ -357,6 +558,7 @@ export default function DeviceConfigurationPage({
       if (!response.ok) throw new Error(result?.message ?? `HTTP ${response.status}`);
       setDirty(false);
       setLoadError(null);
+      wsClient.restartConnection();
       showNotification({
         color: "teal",
         title: "Device configuration saved",
@@ -378,12 +580,17 @@ export default function DeviceConfigurationPage({
     try {
       const response = await fetch("/api/devices", { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result = await response.json() as { i2cDevices?: Array<{ addressHex?: string; address?: number }> };
+      const result = await response.json() as HardwareDevicesResponse;
       const addresses = Array.isArray(result.i2cDevices)
         ? result.i2cDevices.map(device => device.addressHex ??
           (Number.isInteger(device.address) ? hexAddress(device.address as number) : "")).filter(Boolean)
         : [];
       setDetectedAddresses(addresses);
+      setRuntimeDevices(
+        Array.isArray(result.configuredDevices)
+          ? result.configuredDevices
+          : []
+      );
       showNotification({
         color: "blue",
         title: "I²C scan complete",
@@ -431,8 +638,24 @@ export default function DeviceConfigurationPage({
       firstVpin: form.firstVpin,
       pinCount: definition.pinCount,
       ...(form.type === "pca9685"
-        ? { frequency: form.frequency }
-        : { interruptPin: form.interruptPin }),
+        ? {
+          frequency: form.frequency,
+          ...(devices.find(device => device.id === form.id)?.servoChannels
+            ? {
+              servoChannels: devices.find(device => device.id === form.id)!
+                .servoChannels!,
+            }
+            : {}),
+        }
+        : {
+          interruptPin: form.interruptPin,
+          ...(devices.find(device => device.id === form.id)?.digitalChannels
+            ? {
+              digitalChannels: devices.find(device => device.id === form.id)!
+                .digitalChannels!,
+            }
+            : {}),
+        }),
     };
 
     replaceDevices(
@@ -442,6 +665,7 @@ export default function DeviceConfigurationPage({
         )
         : [...devices, nextDevice]
     );
+    setSelectedDeviceId(nextDevice.id);
     setDialogOpened(false);
   };
 
@@ -490,6 +714,106 @@ export default function DeviceConfigurationPage({
     );
     setDeleteTarget(null);
   };
+
+  const updateServoChannel = (
+    device: DeviceConfiguration,
+    channel: number,
+    patch: Partial<ServoChannelConfiguration>
+  ) => {
+    const current = servoChannelConfiguration(device, channel);
+    const nextChannel = { ...current, ...patch, channel };
+    const otherChannels = (device.servoChannels ?? [])
+      .filter(item => item.channel !== channel);
+    const servoChannels = [...otherChannels, nextChannel]
+      .sort((left, right) => left.channel - right.channel);
+
+    replaceDevices(devices.map(item =>
+      item.id === device.id ? { ...item, servoChannels } : item
+    ));
+  };
+
+  const testPca9685Channel = (
+    vpin: number,
+    active: boolean,
+    configuration: ServoChannelConfiguration
+  ) => {
+    const position = active
+      ? configuration.onPosition
+      : configuration.offPosition;
+    const profile = configuration.keepPowered ? 0x80 : 0;
+    const durationDeciseconds = Math.round(configuration.durationMs / 100);
+    const sent = wsApi.writeDccExDirectCommand(
+      `<z ${vpin} ${position} ${profile} ${durationDeciseconds}>`
+    );
+    if (sent) {
+      setServoTestStates(current => ({
+        ...current,
+        [vpin]: active,
+      }));
+    }
+
+    showNotification({
+      color: sent ? "blue" : "red",
+      title: sent
+        ? `VPIN ${vpin} switched ${active ? "ON" : "OFF"}`
+        : "Test command not sent",
+      message: sent
+        ? `Position ${position}, movement ${durationDeciseconds / 10}s.`
+        : "The WebSocket connection is not available.",
+    });
+  };
+
+  const updateDigitalChannel = (
+    device: DeviceConfiguration,
+    channel: number,
+    mode: "unused" | "input" | "output",
+    patch: Partial<DigitalChannelConfiguration> = {}
+  ) => {
+    const current = digitalChannelConfiguration(device, channel);
+    const otherChannels = (device.digitalChannels ?? [])
+      .filter(item => item.channel !== channel);
+    const digitalChannels = mode === "unused"
+      ? otherChannels
+      : [
+        ...otherChannels,
+        {
+          channel,
+          mode,
+          id: current?.id ?? device.firstVpin + channel,
+          ...(mode === "input"
+            ? { pullUp: current?.pullUp ?? true }
+            : {
+              inverted: current?.inverted ?? false,
+              initialState: current?.initialState ?? false,
+            }),
+          ...patch,
+        } as DigitalChannelConfiguration,
+      ].sort((left, right) => left.channel - right.channel);
+
+    replaceDevices(devices.map(item =>
+      item.id === device.id ? { ...item, digitalChannels } : item
+    ));
+  };
+
+  const testDigitalOutput = (outputId: number, active: boolean) => {
+    const sent = wsApi.writeDccExDirectCommand(
+      `<Z ${outputId} ${active ? 1 : 0}>`
+    );
+    showNotification({
+      color: sent ? "blue" : "red",
+      title: sent ? `Output ${outputId} switched ${active ? "ON" : "OFF"}` : "Output not sent",
+      message: sent ? "DCC-EX output updated." : "The WebSocket connection is not available.",
+    });
+  };
+
+  const selectedDevice = devices.find(device => device.id === selectedDeviceId) ?? null;
+  const selectedRuntimeDevice = selectedDevice
+    ? runtimeDevices.find(device =>
+      device.address === selectedDevice.address &&
+      device.firstVpin === selectedDevice.firstVpin
+    ) ?? null
+    : null;
+  const websocketConnected = wsStatus === "connected";
 
   return (
     <Stack gap="md">
@@ -712,6 +1036,12 @@ export default function DeviceConfigurationPage({
           </Group>
 
           <Group gap="xs">
+            <Badge
+              color={websocketConnected ? "green" : "red"}
+              variant={websocketConnected ? "light" : "filled"}
+            >
+              WS {websocketConnected ? "ONLINE" : wsStatus.toUpperCase()}
+            </Badge>
             <Badge color={dirty ? "orange" : "teal"} variant="light">
               {loading ? "Loading" : dirty ? "Unsaved changes" : "Saved on device"}
             </Badge>
@@ -745,171 +1075,307 @@ export default function DeviceConfigurationPage({
         </Alert>
       )}
 
-      <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-        {Object.values(DEVICE_DEFINITIONS).map(item => (
-          <Card key={item.type} withBorder radius={5} p="md">
-            <Group justify="space-between" align="flex-start">
-              <ThemeIcon
-                size={42}
-                radius="md"
-                color={item.color}
+      {signalLogicState?.enabled ? (
+        <Alert color="orange" icon={<IconAlertTriangle size={19} />}>
+          <Text fw={700}>Signal automation is active</Text>
+          <Text size="sm">
+            Its rules can immediately overwrite manual PCA9685, accessory or
+            VPIN test outputs. Disable Signal automation before testing hardware
+            if an output appears to switch back by itself.
+          </Text>
+        </Alert>
+      ) : null}
+
+      <Grid gap="md" align="stretch">
+        <Grid.Col span={{ base: 12, md: 3 }}>
+          <Card withBorder radius={5} p="md" h="100%">
+            <Group justify="space-between" align="center">
+              <div>
+                <Title order={4}>Configured devices</Title>
+                <Text size="sm" c="dimmed">{devices.length} configured</Text>
+              </div>
+              <ActionIcon
                 variant="light"
+                color="gray"
+                size="lg"
+                loading={scanning}
+                aria-label="Scan I²C bus"
+                onClick={() => void scanI2c()}
               >
-                <IconCpu size={23} />
-              </ThemeIcon>
-              <Badge color={item.color} variant="light">
-                {item.pinCount} channels
-              </Badge>
+                <IconRefresh size={18} />
+              </ActionIcon>
             </Group>
-            <Title order={4} mt="sm">
-              {item.label}
-            </Title>
-            <Text size="sm" c="dimmed" mt={4}>
-              {item.description}
-            </Text>
-            <Button
-              mt="md"
-              size="compact-sm"
-              variant="light"
-              color={item.color}
-              leftSection={<IconPlus size={15} />}
-              onClick={() => openAdd(item.type)}
-            >
-              Add {item.label}
-            </Button>
+
+            {detectedAddresses.length > 0 && (
+              <Text size="xs" c="dimmed" mt="xs">
+                Detected: {detectedAddresses.join(", ")}
+              </Text>
+            )}
+
+            <Divider my="md" />
+
+            {devices.length === 0 ? (
+              <Text size="sm" c="dimmed" ta="center" py="xl">
+                No configured devices. Use Add device to create one.
+              </Text>
+            ) : (
+              <Stack gap="xs">
+                {devices.map(device => {
+                  const item = DEVICE_DEFINITIONS[device.type];
+                  const lastVpin = device.firstVpin + device.pinCount - 1;
+                  const selected = device.id === selectedDeviceId;
+                  return (
+                    <Card
+                      key={device.id}
+                      withBorder
+                      radius={5}
+                      p="sm"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedDeviceId(device.id)}
+                      onKeyDown={event => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedDeviceId(device.id);
+                        }
+                      }}
+                      style={{
+                        cursor: "pointer",
+                        borderColor: selected
+                          ? `var(--mantine-color-${item.color}-5)`
+                          : undefined,
+                        background: selected
+                          ? `var(--mantine-color-${item.color}-light)`
+                          : undefined,
+                      }}
+                    >
+                      <Group gap="xs">
+                        <Text fw={700}>{device.name}</Text>
+                        <Badge size="xs" color={device.enabled ? "teal" : "gray"}>
+                          {device.enabled ? "Enabled" : "Disabled"}
+                        </Badge>
+                      </Group>
+                      <Text size="sm" c="dimmed" mt={4}>
+                        {item.label} · {hexAddress(device.address)} · VPIN {device.firstVpin}–{lastVpin}
+                        {device.frequency ? ` · ${device.frequency} Hz` : ""}
+                      </Text>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            )}
           </Card>
-        ))}
-      </SimpleGrid>
+        </Grid.Col>
 
-      <Card withBorder radius={5} p="md">
-        <Group justify="space-between" align="center" wrap="wrap">
-          <div>
-            <Title order={4}>Configured devices</Title>
-            <Text size="sm" c="dimmed">
-              {devices.length === 0
-                ? "No external device has been added yet."
-                : `${devices.length} device${devices.length === 1 ? "" : "s"
-                } configured.`}
-            </Text>
-          </div>
-
-          <Button
-            variant="light"
-            color="gray"
-            leftSection={<IconRefresh size={16} />}
-            loading={scanning}
-            onClick={() => void scanI2c()}
-          >
-            Scan I²C bus
-          </Button>
-        </Group>
-
-        {detectedAddresses.length > 0 && (
-          <Group gap="xs" mt="sm">
-            <Text size="sm" c="dimmed">Detected:</Text>
-            {detectedAddresses.map(address => (
-              <Badge key={address} variant="light" color="blue">{address}</Badge>
-            ))}
-          </Group>
-        )}
-
-        <Divider my="md" />
-
-        {devices.length === 0 ? (
-          <Stack align="center" py="xl" gap="xs">
-            <ThemeIcon
-              size={54}
-              radius="xl"
-              color="gray"
-              variant="light"
-            >
-              <IconCpu size={30} />
-            </ThemeIcon>
-            <Text fw={700}>No configured devices</Text>
-            <Text size="sm" c="dimmed" ta="center">
-              Add a servo or GPIO expander to start building the
-              hardware configuration.
-            </Text>
-          </Stack>
-        ) : (
-          <Stack gap="sm">
-            {devices.map(device => {
-              const item = DEVICE_DEFINITIONS[device.type];
-              const lastVpin =
-                device.firstVpin + device.pinCount - 1;
-
+        <Grid.Col span={{ base: 12, md: 9 }}>
+          <Card withBorder radius={5} p="md" h="100%">
+            {!selectedDevice ? (
+              <Stack align="center" justify="center" mih={300}>
+                <IconCpu size={42} />
+                <Text c="dimmed">Select a configured device.</Text>
+              </Stack>
+            ) : (() => {
+              const item = DEVICE_DEFINITIONS[selectedDevice.type];
+              const runtimeOnline = selectedDevice.enabled && selectedRuntimeDevice?.online === true;
+              const testAvailable = websocketConnected && runtimeOnline && !dirty;
               return (
-                <Card key={device.id} withBorder radius={5} p="sm">
-                  <Group
-                    justify="space-between"
-                    align="center"
-                    wrap="wrap"
-                  >
-                    <Group gap="sm" wrap="nowrap">
-                      <ThemeIcon
-                        size={40}
-                        radius="md"
-                        color={device.enabled ? item.color : "gray"}
-                        variant="light"
-                      >
-                        <IconCpu size={22} />
-                      </ThemeIcon>
-                      <div>
-                        <Group gap="xs">
-                          <Text fw={700}>{device.name}</Text>
-                          <Badge
-                            size="sm"
-                            color={device.enabled ? "teal" : "gray"}
-                            variant="light"
-                          >
-                            {device.enabled ? "Enabled" : "Disabled"}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" c="dimmed">
-                          {item.label} · {hexAddress(device.address)} ·
-                          VPIN {device.firstVpin}–{lastVpin}
-                          {device.frequency
-                            ? ` · ${device.frequency} Hz`
-                            : ""}
-                        </Text>
-                      </div>
-                    </Group>
-
+                <>
+                  <Group justify="space-between" align="flex-start" wrap="wrap">
+                    <div>
+                      <Group gap="xs">
+                        <Title order={4}>{selectedDevice.name}</Title>
+                        <Badge
+                          color={!websocketConnected ? "yellow" : runtimeOnline ? "green" : "red"}
+                          variant="light"
+                        >
+                          {!websocketConnected
+                            ? "Waiting for WebSocket"
+                            : !selectedDevice.enabled
+                              ? "Disabled"
+                              : runtimeOnline
+                                ? `Online · ${selectedRuntimeDevice?.state ?? "ready"}`
+                                : "Offline / not loaded"}
+                        </Badge>
+                      </Group>
+                      <Text size="sm" c="dimmed" mt={4}>
+                        {item.label} · {hexAddress(selectedDevice.address)} · VPIN {selectedDevice.firstVpin}–{selectedDevice.firstVpin + selectedDevice.pinCount - 1}
+                      </Text>
+                    </div>
                     <Group gap="xs" wrap="nowrap">
                       <Switch
-                        aria-label={`Enable ${device.name}`}
-                        checked={device.enabled}
+                        label="Enabled"
+                        checked={selectedDevice.enabled}
                         onChange={event =>
-                          toggleDevice(
-                            device,
-                            event.currentTarget.checked
-                          )
+                          toggleDevice(selectedDevice, event.currentTarget.checked)
                         }
                       />
                       <ActionIcon
                         variant="light"
                         color="blue"
-                        aria-label={`Edit ${device.name}`}
-                        onClick={() => openEdit(device)}
+                        aria-label={`Edit ${selectedDevice.name}`}
+                        onClick={() => openEdit(selectedDevice)}
                       >
                         <IconEdit size={17} />
                       </ActionIcon>
                       <ActionIcon
                         variant="light"
                         color="red"
-                        aria-label={`Delete ${device.name}`}
-                        onClick={() => setDeleteTarget(device)}
+                        aria-label={`Delete ${selectedDevice.name}`}
+                        onClick={() => setDeleteTarget(selectedDevice)}
                       >
                         <IconTrash size={17} />
                       </ActionIcon>
                     </Group>
                   </Group>
-                </Card>
+
+                  <Divider my="md" />
+                  <Stack gap="sm">
+                    {Array.from({ length: selectedDevice.pinCount }, (_, channel) => {
+                      const vpin = selectedDevice.firstVpin + channel;
+                      const servoConfig = servoChannelConfiguration(selectedDevice, channel);
+                      const digitalConfig = digitalChannelConfiguration(selectedDevice, channel);
+                      return (
+                        <Card key={vpin} withBorder radius={5} p="sm">
+                          <Group justify="space-between" align="center">
+                            <Group gap="xs">
+                              <Badge variant="light" color={item.color}>CH {channel}</Badge>
+                              <Text size="sm" fw={600}>VPIN {vpin}</Text>
+                            </Group>
+                            {selectedDevice.type === "pca9685" && (
+                              <Group gap={4}>
+                                <Button
+                                  size="compact-xs"
+                                  color="gray"
+                                  variant={servoTestStates[vpin] === false ? "filled" : "light"}
+                                  disabled={!testAvailable}
+                                  onClick={() => testPca9685Channel(vpin, false, servoConfig)}
+                                >OFF</Button>
+                                <Button
+                                  size="compact-xs"
+                                  color="teal"
+                                  variant={servoTestStates[vpin] === true ? "filled" : "light"}
+                                  disabled={!testAvailable}
+                                  onClick={() => testPca9685Channel(vpin, true, servoConfig)}
+                                >ON</Button>
+                              </Group>
+                            )}
+                          </Group>
+
+                          {selectedDevice.type === "pca9685" ? (
+                            <>
+                              <SimpleGrid cols={{ base: 1, sm: 3 }} mt="sm">
+                                <NumberInput label="OFF position" value={servoConfig.offPosition} min={0} max={4095} size="xs" allowDecimal={false} onChange={value => typeof value === "number" && updateServoChannel(selectedDevice, channel, { offPosition: value })} />
+                                <NumberInput label="ON position" value={servoConfig.onPosition} min={0} max={4095} size="xs" allowDecimal={false} onChange={value => typeof value === "number" && updateServoChannel(selectedDevice, channel, { onPosition: value })} />
+                                <NumberInput label="Movement time" value={servoConfig.durationMs} min={0} max={60000} step={100} suffix=" ms" size="xs" allowDecimal={false} onChange={value => typeof value === "number" && updateServoChannel(selectedDevice, channel, { durationMs: value })} />
+                              </SimpleGrid>
+                              <Switch mt="sm" size="xs" label="Keep PWM active after movement" checked={servoConfig.keepPowered} onChange={event => updateServoChannel(selectedDevice, channel, { keepPowered: event.currentTarget.checked })} />
+                            </>
+                          ) : (
+                            <>
+                              <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
+                                <Select
+                                  label="Pin mode"
+                                  value={digitalConfig?.mode ?? "unused"}
+                                  allowDeselect={false}
+                                  data={[
+                                    { value: "unused", label: "Unused" },
+                                    { value: "input", label: "Input / DCC-EX sensor" },
+                                    { value: "output", label: "Output / DCC-EX output" },
+                                  ]}
+                                  onChange={value => updateDigitalChannel(selectedDevice, channel, (value ?? "unused") as "unused" | "input" | "output")}
+                                />
+                                {digitalConfig && (
+
+                                  <NumberInput
+                                    label={
+                                      <Group gap="xs">
+                                        <Text size="sm" fw={500}>
+                                          {digitalConfig.mode === "input" ? "Sensor ID" : "Output ID"}
+                                        </Text>
+
+                                        <Badge
+                                          variant="light"
+                                          ff={"monospace"}
+                                          style={{ textTransform: "none" }}
+                                        >
+                                          {digitalConfig.mode === "input"
+                                            ? `<S ${digitalConfig.id} ${vpin} PULLUP>`
+                                            : `<Z ${digitalConfig.id} ${vpin} IFLAG>`}
+                                        </Badge>                                      </Group>
+                                    }
+                                    value={digitalConfig.id}
+                                    min={0}
+                                    max={32767}
+                                    allowDecimal={false}
+                                    onChange={value =>
+                                      typeof value === "number" &&
+                                      updateDigitalChannel(
+                                        selectedDevice,
+                                        channel,
+                                        digitalConfig.mode,
+                                        { id: value }
+                                      )
+                                    }
+                                  />
+                                )}
+                              </SimpleGrid>
+
+                              {digitalConfig?.mode === "input" && (
+                                <Group justify="space-between" align="center" mt="sm" wrap="wrap">
+                                  <Switch
+                                    label="Pull-up"
+                                    description={selectedDevice.type.startsWith("pcf") ? "PCF8574/PCF8575 inputs always use their weak pull-up." : "Enable the MCP23017 internal pull-up resistor."}
+                                    checked={selectedDevice.type.startsWith("pcf") ? true : digitalConfig.pullUp ?? true}
+                                    disabled={selectedDevice.type.startsWith("pcf")}
+                                    onChange={event => updateDigitalChannel(selectedDevice, channel, "input", { pullUp: event.currentTarget.checked })}
+                                  />
+                                  <Badge
+                                    size="lg"
+                                    variant={sensorStates[digitalConfig.id] === undefined ? "light" : "filled"}
+                                    color={sensorStates[digitalConfig.id] === undefined
+                                      ? "gray"
+                                      : sensorStates[digitalConfig.id]
+                                        ? "green"
+                                        : "dark"}
+                                  >
+                                    {sensorStates[digitalConfig.id] === undefined
+                                      ? "UNKNOWN"
+                                      : sensorStates[digitalConfig.id]
+                                        ? "ACTIVE"
+                                        : "INACTIVE"}
+                                  </Badge>
+                                </Group>
+                              )}
+
+                              {digitalConfig?.mode === "output" && (
+                                <Group justify="space-between" align="flex-end" mt="sm" wrap="wrap">
+                                  <Group gap="lg">
+                                    <Switch label="Inverted" checked={digitalConfig.inverted ?? false} onChange={event => updateDigitalChannel(selectedDevice, channel, "output", { inverted: event.currentTarget.checked })} />
+                                    <Switch label="Initial ON" checked={digitalConfig.initialState ?? false} onChange={event => updateDigitalChannel(selectedDevice, channel, "output", { initialState: event.currentTarget.checked })} />
+                                  </Group>
+                                  <Group gap={4}>
+                                    <Button size="compact-xs" color="gray" variant="light" disabled={!testAvailable} onClick={() => testDigitalOutput(digitalConfig.id, false)}>OFF</Button>
+                                    <Button size="compact-xs" color="teal" variant="light" disabled={!testAvailable} onClick={() => testDigitalOutput(digitalConfig.id, true)}>ON</Button>
+                                  </Group>
+                                </Group>
+                              )}
+                            </>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </Stack>
+                  {dirty && (
+                    <Text size="xs" c="orange" mt="sm">
+                      Apply and restart before testing changed pin settings.
+                    </Text>
+                  )}
+                </>
               );
-            })}
-          </Stack>
-        )}
-      </Card>
+            })()}
+          </Card>
+        </Grid.Col>
+      </Grid>
     </Stack>
   );
 }

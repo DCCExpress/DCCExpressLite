@@ -1,12 +1,17 @@
 param(
   [Parameter(Mandatory = $true)][string]$Version,
   [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\.."),
+  [string]$BuildDirectory = "",
   [string]$FirmwareOutputDirectory = "$PSScriptRoot\..\artifacts\firmware",
   [string]$WebInstallerOutputDirectory = "$PSScriptRoot\..\artifacts\webinstaller"
 )
 
 $ErrorActionPreference = 'Stop'
-$build = Join-Path $ProjectRoot '.pio/build/ESP32'
+$build = if ($BuildDirectory) {
+  (Resolve-Path -LiteralPath $BuildDirectory).Path
+} else {
+  Join-Path $ProjectRoot '.pio/build/ESP32'
+}
 $flashSize = 4MB
 
 $bootApp = Get-ChildItem "$env:USERPROFILE/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" -ErrorAction SilentlyContinue | Select-Object -First 1

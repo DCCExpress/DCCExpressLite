@@ -10,6 +10,7 @@
 - [Gamepad control](Gamepad-Control)
 - [Decoder programming](Decoder-Programming)
 - [Files, backup, and restore](Files-Backup-and-Restore)
+- [Device configuration](Device-Configuration)
 - [Diagnostics and integrity](Diagnostics-and-Integrity)
 - [Troubleshooting](Troubleshooting)
 - [Developer guide](Developer-Guide)

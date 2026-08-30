@@ -243,6 +243,15 @@ struct VpinStateCacheEntry
 };
 static VpinStateCacheEntry vpinStateCache[MAX_VPIN_STATE_CACHE];
 static uint8_t nextVpinReplacementSlot = 0;
+static const uint8_t MAX_SENSOR_STATE_GROUPS = 32;
+struct SensorStateGroup
+{
+  uint16_t baseAddress = 0;
+  uint16_t activeBits = 0;
+  uint16_t knownBits = 0;
+};
+static SensorStateGroup sensorStateGroups[MAX_SENSOR_STATE_GROUPS];
+static uint8_t nextSensorReplacementSlot = 0;
 
 static int8_t readTurnoutStateForSignalLogic(uint16_t address)
 {
@@ -471,6 +480,85 @@ static void writeSignalOutput(uint16_t address, bool active, bool vpin)
 {
   if (vpin) writeVpinState(address, active, false);
   else writeBasicAccessoryState(address, active);
+}
+
+static SensorStateGroup *findSensorStateGroup(uint16_t baseAddress)
+{
+  for (SensorStateGroup &group : sensorStateGroups)
+    if (group.knownBits && group.baseAddress == baseAddress) return &group;
+  return nullptr;
+}
+
+static void cacheSensorState(uint16_t address, bool active)
+{
+  const uint16_t baseAddress = address & 0xFFF0U;
+  const uint16_t bit = static_cast<uint16_t>(1U << (address & 0x0FU));
+  SensorStateGroup *group = findSensorStateGroup(baseAddress);
+  if (!group)
+  {
+    for (SensorStateGroup &candidate : sensorStateGroups)
+      if (!candidate.knownBits)
+      {
+        group = &candidate;
+        break;
+      }
+  }
+  if (!group)
+  {
+    group = &sensorStateGroups[nextSensorReplacementSlot];
+    nextSensorReplacementSlot = (nextSensorReplacementSlot + 1) % MAX_SENSOR_STATE_GROUPS;
+  }
+  if (!group->knownBits || group->baseAddress != baseAddress)
+  {
+    group->baseAddress = baseAddress;
+    group->activeBits = 0;
+    group->knownBits = 0;
+  }
+  group->knownBits |= bit;
+  if (active) group->activeBits |= bit;
+  else group->activeBits &= static_cast<uint16_t>(~bit);
+}
+
+static void publishSensorState(uint16_t address, bool active, const char *uuid = nullptr)
+{
+  cacheSensorState(address, active);
+  DCCExpressLiteSignalLogic::notifySensor(address, active);
+  broadcastMessage("sensorChanged",
+    "{\"address\":" + String(address) +
+    ",\"on\":" + String(active ? "true" : "false") + "}", uuid);
+}
+
+// Accept only state lines with exactly one numeric argument.  DCC-EX also
+// uses <Q ID PIN PULLUP> while dumping sensor definitions; those lines must
+// not be mistaken for an ACTIVE transition.
+static bool parseSensorStateLine(const String &raw, uint16_t &address, bool &active)
+{
+  String line = raw;
+  line.trim();
+  if (line.length() < 5 || line.charAt(0) != '<' || line.charAt(line.length() - 1) != '>') return false;
+  const char marker = line.charAt(1);
+  if (marker != 'Q' && marker != 'q') return false;
+
+  unsigned int cursor = 2;
+  while (cursor < line.length() && line.charAt(cursor) == ' ') ++cursor;
+  const unsigned int numberStart = cursor;
+  while (cursor < line.length() && isDigit(line.charAt(cursor))) ++cursor;
+  if (cursor == numberStart) return false;
+
+  const long parsedAddress = line.substring(numberStart, cursor).toInt();
+  while (cursor < line.length() && line.charAt(cursor) == ' ') ++cursor;
+  if (cursor != line.length() - 1 || parsedAddress < 0 || parsedAddress > 32767) return false;
+
+  address = static_cast<uint16_t>(parsedAddress);
+  active = marker == 'Q';
+  return true;
+}
+
+static void publishSensorStateFromRaw(const String &raw)
+{
+  uint16_t address = 0;
+  bool active = false;
+  if (parseSensorStateLine(raw, address, active)) publishSensorState(address, active);
 }
 
 static String programmingResponseData(const String &requestId, const String &action,
@@ -768,6 +856,27 @@ static void sendVpinSnapshot(uint32_t clientId, const VpinStateCacheEntry &entry
     ",\"active\":" + String(entry.state > 0 ? "true" : "false") + "}");
 }
 
+static void sendSensorSnapshot(uint32_t clientId)
+{
+  String data = "{\"groups\":[";
+  bool first = true;
+  for (const SensorStateGroup &group : sensorStateGroups)
+  {
+    if (!group.knownBits) continue;
+    if (!first) data += ',';
+    first = false;
+    data += '[';
+    data += String(group.baseAddress);
+    data += ',';
+    data += String(group.activeBits);
+    data += ',';
+    data += String(group.knownBits);
+    data += ']';
+  }
+  data += "]}";
+  sendToClient(clientId, "sensorSnapshot", data);
+}
+
 static void sendBlockState(uint32_t clientId = 0)
 {
   const String data = DCCExpressLiteRuntimeState::blockStateJson();
@@ -872,9 +981,13 @@ static void processInitialSnapshots()
           sent = true;
           break;
         }
-        if (!sent) snapshot.active = false;
+        if (!sent) ++snapshot.stage;
         break;
       }
+      case 10:
+        sendSensorSnapshot(snapshot.clientId);
+        snapshot.active = false;
+        break;
       default:
         snapshot.active = false;
         break;
@@ -1336,6 +1449,12 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
   const char *uuid = uuidString.length() ? uuidString.c_str() : nullptr;
   JsonObjectConst payload = doc["data"].as<JsonObjectConst>();
 
+  if (type == "heartbeat")
+  {
+    sendToClient(clientId, "heartbeatAck", "{}", uuid);
+    return;
+  }
+
   if (type == "dccexraw")
   {
     const String raw = payload["raw"] | "";
@@ -1533,8 +1652,12 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     const int address = getInt(payload["address"]);
     const bool on = getBool(payload["on"]);
 
-    DCCExpressLiteSignalLogic::notifySensor(address, on);
-    broadcastMessage("sensorChanged", "{\"address\":" + String(address) + ",\"on\":" + String(on ? "true" : "false") + "}", uuid);
+    if (address < 0 || address > 32767)
+    {
+      sendError(clientId, "sensor_address_out_of_range", uuid);
+      return;
+    }
+    publishSensorState(static_cast<uint16_t>(address), on, uuid);
     return;
   }
 
@@ -1575,6 +1698,7 @@ void sendFormattedInfo(String s)
 {
   broadcastMessage("rawInfo", "{\"raw\":\"" + escapeJson(s) + "\"}", nullptr, true);
   broadcastMessage("dccExDirectCommandResponse", "{\"response\":\"" + escapeJson(s) + "\"}");
+  publishSensorStateFromRaw(s);
 }
 
 static void addConnectedClient(uint32_t clientId)
@@ -1708,8 +1832,8 @@ static const char *i2cDeviceTypeGuess(uint8_t address)
 {
   if (address == 0x1a) return "Piicodev radio transceiver";
   if (address == 0x1c) return "QMC6310 magnetometer";
-  if (address >= 0x20 && address <= 0x26) return "GPIO expander";
-  if (address == 0x27) return "GPIO expander or LCD display";
+  if (address >= 0x20 && address <= 0x26) return "GPIO expander (MCP23017 / PCF8574 / PCF8575)";
+  if (address == 0x27) return "GPIO expander (MCP23017 / PCF8574 / PCF8575) or LCD display";
   if (address == 0x29) return "Time-of-flight sensor";
   if (address == 0x34) return "TCA8418 keypad scanner";
   if (address >= 0x3c && address <= 0x3d) return "OLED display or magnetometer";
@@ -1860,6 +1984,8 @@ void setupHTTPServer()
   memset(basicAccessoryStateCache, -1, sizeof(basicAccessoryStateCache));
   memset(vpinStateCache, 0, sizeof(vpinStateCache));
   nextVpinReplacementSlot = 0;
+  memset(sensorStateGroups, 0, sizeof(sensorStateGroups));
+  nextSensorReplacementSlot = 0;
 
   esp_register_freertos_idle_hook_for_cpu(cpuIdleHook0, 0);
   esp_register_freertos_idle_hook_for_cpu(cpuIdleHook1, 1);
@@ -1893,6 +2019,9 @@ void setupHTTPServer()
     readTurnoutStateForSignalLogic,
     readVpinStateForSignalLogic,
     writeSignalOutput);
+  // Prime browser snapshots with the current state of every DCC-EX sensor.
+  // The replies are consumed incrementally in loopHTTPServer().
+  dccParseRaw("<Q>");
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
@@ -2450,6 +2579,7 @@ void loopHTTPServer()
   {
     handleProgrammingOutput(rawLine);
     broadcastMessage("rawInfo", "{\"raw\":\"" + escapeJson(rawLine) + "\"}", nullptr, true);
+    publishSensorStateFromRaw(rawLine);
   }
 
   const unsigned long now = millis();

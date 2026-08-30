@@ -20,10 +20,28 @@ The merged 4 MB image contains the bootloader, partition table, application firm
 - The LCD shows the address to open.
 - Network settings are stored in ESP32 Preferences, not in exported layout files or the public firmware data set.
 
+## Open the installed application
+
+Use either of these addresses from the same local network:
+
+- `http://dccex.local`
+- the numeric IP address shown on the EX-CSB1 display, such as `http://192.168.1.143`
+
+The numeric DHCP address may change. Use it as a fallback when a client does not support or resolve the `.local` mDNS name.
+
+## Embedded Console and Web Serial
+
+Normal browser control uses WebSocket and needs no special browser flag. Direct USB serial access from the embedded **Console** page additionally requires a secure browser context. The public HTTPS installer already has one; an embedded HTTP origin may need this Chrome flag:
+
+```text
+chrome://flags/#unsafely-treat-insecure-origin-as-secure
+```
+
+Enter the exact trusted origins, for example `http://192.168.1.143` and/or `http://dccex.local`, and relaunch Chrome. Do not add unrelated sites because the flag intentionally weakens secure-context protection for every listed origin.
+
 ## First safety checks
 
 - Keep the programming track electrically isolated from MAIN.
 - Start with track power off.
 - Verify turnout and signal addresses before operating physical accessories.
 - Create a backup after initial configuration.
-

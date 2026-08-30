@@ -72,6 +72,7 @@ import type {
   LocoReservationChangedPayload,
   LocoStateChangedPayload,
   SensorChangedPayload,
+  SensorSnapshotPayload,
   TurnoutChangedPayload,
   VpinChangedPayload,
 } from "./railwayRuntimeEvents.js";
@@ -116,6 +117,7 @@ export type {
 export type ClientWsMessageType = keyof ClientWsPayloadMap;
 
 export const CLIENT_WS_MESSAGE_TYPES = [
+  "heartbeat",
   "setTrackPower",
   "setProgrammingPower",
   "emergencyStop",
@@ -310,6 +312,7 @@ export type AutomationResponsePayload = WsCommandResponseMeta & {
 
 export type ServerWsPayloadMap = {
   "ws:welcome": { message: string };
+  heartbeatAck: Record<string, never>;
   rawInfo: { raw: string };
   ack: string;
   error: { message: string };
@@ -322,6 +325,7 @@ export type ServerWsPayloadMap = {
 
   turnoutChanged: TurnoutChangedPayload;
   sensorChanged: SensorChangedPayload;
+  sensorSnapshot: SensorSnapshotPayload;
   accessoryChanged: AccessoryChangedPayload;
   vpinChanged: VpinChangedPayload;
   blockStateChanged: BlockStateChangedPayload;

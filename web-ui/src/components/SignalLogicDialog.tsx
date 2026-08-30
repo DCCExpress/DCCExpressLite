@@ -308,7 +308,13 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
             <Switch
               checked={runtime.enabled}
               label="Enabled"
-              onChange={event => setRuntime(current => ({ ...current, enabled: event.currentTarget.checked }))}
+              onChange={event => {
+                const enabled = event.currentTarget.checked;
+                setRuntime(current => ({
+                  ...current,
+                  enabled,
+                }));
+              }}
             />
           </Group>
         </Group>
@@ -378,13 +384,14 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                             updateGroup(selectedGroup.id, group => {
                               const { signalAddress: _legacyAddress, ...currentGroup } = group;
                               return {
-                              ...currentGroup,
-                              signalId,
-                              rules: group.rules.map(rule => ({
-                                ...rule,
-                                aspect: allowedAspects(signalId)[0] ?? "green",
-                              })),
-                            }; });
+                                ...currentGroup,
+                                signalId,
+                                rules: group.rules.map(rule => ({
+                                  ...rule,
+                                  aspect: allowedAspects(signalId)[0] ?? "green",
+                                })),
+                              };
+                            });
                           }}
                           w={260}
                         />

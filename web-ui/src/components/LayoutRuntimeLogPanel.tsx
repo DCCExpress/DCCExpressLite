@@ -27,6 +27,7 @@ const IO_MESSAGE_TYPES = new Set([
   "setLocoFunction", "setTurnout", "setSensor", "setBasicAccessory",
   "setVpin", "setBlock", "setBlockRemove", "setBlocksReset",
   "turnoutChanged", "sensorChanged", "accessoryChanged", "vpinChanged",
+  "sensorSnapshot",
   "blockStateChanged", "locoState", "powerInfo",
 ]);
 

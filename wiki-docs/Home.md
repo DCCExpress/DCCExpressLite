@@ -13,6 +13,7 @@ DCCExpressLite is a self-contained browser controller for the **EX-CSB1** comman
 5. [Drive locomotives](Locomotives-and-Mobile-Control)
 6. [Configure a gamepad](Gamepad-Control)
 7. [Back up your data](Files-Backup-and-Restore)
+8. [Configure external I²C devices](Device-Configuration)
 
 ## Main features
 
@@ -30,5 +31,8 @@ DCCExpressLite is a self-contained browser controller for the **EX-CSB1** comman
 - Release-independent export/import including locomotive images and signal rules
 - WebSocket reconnect, multi-client support, diagnostics, and integrity checking
 - Filterable live DCC-EX and I/O logging with bounded browser memory use
+- Dynamic PCA9685, MCP23017, PCF8574, and PCF8575 configuration with live pin testing and input indication
+
+Open the installed command center at `http://dccex.local` or at the numeric IP address shown on the EX-CSB1 display.
 
 The **HELP** button in the Layout Editor always opens this Wiki.

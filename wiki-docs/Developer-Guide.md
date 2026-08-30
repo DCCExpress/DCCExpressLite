@@ -22,7 +22,7 @@ npm run embed
 cd ..
 pio run -e ESP32
 pio run -e ESP32 -t buildfs
-pwsh ./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.3
+pwsh ./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.6
 ```
 
 The merged image must be exactly 4,194,304 bytes. See the repository's `DEVELOPING.md` for prerequisites, upload commands, flash offsets, checklist, and release procedure. See `UPSTREAM.md` for the integrated CommandStation-EX version and the intentionally small upstream modification surface.

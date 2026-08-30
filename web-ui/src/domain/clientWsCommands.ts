@@ -277,6 +277,7 @@ export type SetEditorEditModeCommandPayload = {
 };
 
 export type ClientWsPayloadMap = {
+  heartbeat: EmptyClientWsCommandPayload;
   setTrackPower: SetTrackPowerCommandPayload;
   setProgrammingPower: SetProgrammingPowerCommandPayload;
   emergencyStop: EmptyClientWsCommandPayload;

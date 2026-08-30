@@ -62,7 +62,7 @@ The product configuration selects the EX-CSB1 hardware and OLED:
 
 Saved home-network credentials are not compiled into `config.h`; they are stored in ESP32 NVS. The upstream `config.example.h` is retained unchanged as part of the vendored DCC-EX source.
 
-The integrated upstream version and the four small core hooks are documented in [`UPSTREAM.md`](UPSTREAM.md).
+The integrated upstream version and the small, isolated core hooks are documented in [`UPSTREAM.md`](UPSTREAM.md).
 
 ## Firmware and LittleFS builds
 
@@ -74,7 +74,7 @@ pio run -e ESP32 -t buildfs
 Build outputs are written to:
 
 ```text
-CommandStation-EX/.pio/build/ESP32/
+.pio/build/ESP32/
 ```
 
 Relevant files:
@@ -126,7 +126,13 @@ pio run -e ESP32 -t buildfs
 Generate the 4 MB image used by ESP Web Tools:
 
 ```powershell
-./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.3
+./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.6
+```
+
+If PlatformIO was configured with a non-default build directory, pass its environment output explicitly:
+
+```powershell
+./tools/New-MergedFirmware.ps1 -Version 0.1.0-alpha.6 -BuildDirectory .codex-build-alpha6/ESP32
 ```
 
 Outputs:
@@ -159,8 +165,8 @@ git status
 git add --all
 git commit -m "Prepare DCCExpressLite alpha release"
 git push origin main
-git tag v0.1.0-alpha.3
-git push origin v0.1.0-alpha.3
+git tag v0.1.0-alpha.6
+git push origin v0.1.0-alpha.6
 ```
 
 The tag starts `.github/workflows/release-lite.yml`, which builds the UI from source, publishes only the merged image, creates the GitHub prerelease, and updates the GitHub Pages web installer.
