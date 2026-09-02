@@ -8,7 +8,8 @@
 
 namespace
 {
-constexpr const char *RULES_PATH = "/signal-rules.json";
+constexpr const char *RULES_PATH = "/signal-rules.jsonl";
+constexpr const char *LEGACY_RULES_PATH = "/signal-rules.json";
 constexpr const char *LAYOUT_PATH = "/layout.json";
 
 constexpr uint8_t MAX_GROUPS = 24;
@@ -18,6 +19,7 @@ constexpr uint8_t MAX_SENSOR_INPUTS = 32;
 constexpr uint8_t MAX_SIGNAL_STATES = 16;
 constexpr uint8_t MAX_SIGNAL_OUTPUTS = 16;
 constexpr uint32_t SENSOR_POLL_INTERVAL_MS = 100;
+constexpr uint32_t RULES_FILE_CHECK_INTERVAL_MS = 500;
 
 struct SignalCondition
 {
@@ -82,6 +84,10 @@ bool running = false;
 bool evaluationPending = false;
 
 uint32_t lastSensorPollAtMs = 0;
+uint32_t lastRulesFileCheckAtMs = 0;
+uint64_t observedRulesFingerprint = 0;
+size_t observedRulesSize = 0;
+bool observedRulesJsonl = false;
 
 DCCExpressLiteSignalLogic::TurnoutStateReader readTurnout = nullptr;
 DCCExpressLiteSignalLogic::VpinStateReader readVpin = nullptr;
@@ -106,6 +112,77 @@ uint64_t hashStateId(const char *value)
   }
 
   return hash;
+}
+
+uint64_t fingerprintFile(const char *path, size_t &sizeOut)
+{
+  constexpr uint64_t offsetBasis = 14695981039346656037ULL;
+  constexpr uint64_t prime = 1099511628211ULL;
+
+  File file = LittleFS.open(path, "r");
+  if (!file)
+  {
+    sizeOut = 0;
+    return 0;
+  }
+
+  sizeOut = file.size();
+  uint64_t hash = offsetBasis;
+  uint8_t buffer[128];
+
+  while (file.available())
+  {
+    const size_t count = file.read(buffer, sizeof(buffer));
+    if (!count) break;
+
+    for (size_t i = 0; i < count; ++i)
+    {
+      hash ^= buffer[i];
+      hash *= prime;
+    }
+  }
+
+  file.close();
+  return hash;
+}
+
+const char *activeRulesPath()
+{
+  return LittleFS.exists(RULES_PATH)
+    ? RULES_PATH
+    : LEGACY_RULES_PATH;
+}
+
+void rememberRulesFingerprint()
+{
+  observedRulesJsonl = LittleFS.exists(RULES_PATH);
+  observedRulesFingerprint =
+    fingerprintFile(activeRulesPath(), observedRulesSize);
+  lastRulesFileCheckAtMs = millis();
+}
+
+bool rulesFileChanged()
+{
+  const uint32_t now = millis();
+  if (now - lastRulesFileCheckAtMs < RULES_FILE_CHECK_INTERVAL_MS)
+    return false;
+
+  lastRulesFileCheckAtMs = now;
+
+  const bool jsonlExists = LittleFS.exists(RULES_PATH);
+  size_t size = 0;
+  const uint64_t fingerprint =
+    fingerprintFile(jsonlExists ? RULES_PATH : LEGACY_RULES_PATH, size);
+
+  if (jsonlExists == observedRulesJsonl &&
+      size == observedRulesSize &&
+      fingerprint == observedRulesFingerprint)
+    return false;
+
+  observedRulesJsonl = jsonlExists;
+  observedRulesSize = size;
+  observedRulesFingerprint = fingerprint;
+  return true;
 }
 
 bool equalsIgnoreCase(const char *a, const char *b)
@@ -817,6 +894,116 @@ void pollSensors()
   }
 }
 
+void parseRuleGroup(
+  JsonObjectConst jsonGroup,
+  JsonDocument &layout)
+{
+  if (loadedGroupCount >= MAX_GROUPS)
+    return;
+
+  JsonObjectConst signalElement =
+    findSignalElement(
+      layout,
+      jsonGroup["signalId"] | "",
+      jsonGroup["signalAddress"] | 0);
+
+  if (signalElement.isNull())
+    return;
+
+  SignalGroup candidate;
+
+  if (!loadSignalDefinition(signalElement, candidate))
+    return;
+
+  candidate.defaultStateIndex =
+    resolveDefaultStateIndex(
+      jsonGroup,
+      signalElement,
+      candidate);
+
+  for (
+    JsonObjectConst jsonRule :
+    jsonGroup["rules"].as<JsonArrayConst>())
+  {
+    if (candidate.ruleCount >= MAX_RULES_PER_GROUP)
+      break;
+
+    SignalRule rule;
+
+    rule.stateIndex =
+      resolveRuleStateIndex(
+        jsonRule,
+        signalElement,
+        candidate);
+
+    bool valid = true;
+
+    for (
+      JsonObjectConst jsonCondition :
+      jsonRule["conditions"].as<JsonArrayConst>())
+    {
+      if (rule.conditionCount >= MAX_CONDITIONS_PER_RULE)
+        break;
+
+      SignalCondition condition;
+
+      const char *type =
+        jsonCondition["type"] | "turnout";
+
+      condition.sensor =
+        !strcmp(type, "sensor");
+
+      condition.vpin =
+        !condition.sensor &&
+        resolveElementUsesVpin(
+          layout,
+          jsonCondition["turnoutId"] | "",
+          "turnout");
+
+      const int address =
+        condition.sensor
+          ? resolveElementAddress(
+              layout,
+              jsonCondition["sensorId"] | "",
+              jsonCondition["sensorAddress"] | 0,
+              "tracksensor")
+          : resolveElementAddress(
+              layout,
+              jsonCondition["turnoutId"] | "",
+              jsonCondition["turnoutAddress"] | 0,
+              "turnout");
+
+      const int maxAddress =
+        condition.vpin ? 32767 : 2048;
+
+      if (address < 1 || address > maxAddress)
+      {
+        valid = false;
+        break;
+      }
+
+      condition.address =
+        static_cast<uint16_t>(address);
+
+      condition.expected =
+        condition.sensor
+          ? (jsonCondition["active"] | false)
+          : (jsonCondition["closed"] | false);
+
+      rule.conditions[rule.conditionCount++] =
+        condition;
+
+      if (condition.sensor)
+        registerSensorInput(condition.address);
+    }
+
+    if (valid)
+      candidate.rules[candidate.ruleCount++] = rule;
+  }
+
+  groups[loadedGroupCount++] = candidate;
+}
+
 void parseRules(
   JsonDocument &document,
   JsonDocument &layout)
@@ -826,152 +1013,80 @@ void parseRules(
       ? document["enabled"].as<bool>()
       : document["autostart"].as<bool>();
 
-  const JsonArrayConst jsonGroups =
-    document["groups"]
-      .as<JsonArrayConst>();
-
   for (
     JsonObjectConst jsonGroup :
-    jsonGroups)
+    document["groups"].as<JsonArrayConst>())
   {
-    if (
-      loadedGroupCount >=
-      MAX_GROUPS)
+    parseRuleGroup(jsonGroup, layout);
+
+    if (loadedGroupCount >= MAX_GROUPS)
       break;
-
-    JsonObjectConst signalElement =
-      findSignalElement(
-        layout,
-        jsonGroup["signalId"] | "",
-        jsonGroup["signalAddress"] | 0);
-
-    if (signalElement.isNull())
-      continue;
-
-    SignalGroup candidate;
-
-    if (
-      !loadSignalDefinition(
-        signalElement,
-        candidate))
-      continue;
-
-    candidate.defaultStateIndex =
-      resolveDefaultStateIndex(
-        jsonGroup,
-        signalElement,
-        candidate);
-
-    for (
-      JsonObjectConst jsonRule :
-      jsonGroup["rules"]
-        .as<JsonArrayConst>())
-    {
-      if (
-        candidate.ruleCount >=
-        MAX_RULES_PER_GROUP)
-        break;
-
-      SignalRule rule;
-
-      rule.stateIndex =
-        resolveRuleStateIndex(
-          jsonRule,
-          signalElement,
-          candidate);
-
-      bool valid = true;
-
-      for (
-        JsonObjectConst jsonCondition :
-        jsonRule["conditions"]
-          .as<JsonArrayConst>())
-      {
-        if (
-          rule.conditionCount >=
-          MAX_CONDITIONS_PER_RULE)
-          break;
-
-        SignalCondition condition;
-
-        const char *type =
-          jsonCondition["type"] |
-          "turnout";
-
-        condition.sensor =
-          !strcmp(type, "sensor");
-
-        condition.vpin =
-          !condition.sensor &&
-          resolveElementUsesVpin(
-            layout,
-            jsonCondition["turnoutId"] | "",
-            "turnout");
-
-        const int address =
-          condition.sensor
-            ? resolveElementAddress(
-                layout,
-                jsonCondition["sensorId"] | "",
-                jsonCondition["sensorAddress"] | 0,
-                "tracksensor")
-            : resolveElementAddress(
-                layout,
-                jsonCondition["turnoutId"] | "",
-                jsonCondition["turnoutAddress"] | 0,
-                "turnout");
-
-        const int maxAddress =
-          condition.vpin
-            ? 32767
-            : 2048;
-
-        if (
-          address < 1 ||
-          address > maxAddress)
-        {
-          valid = false;
-          break;
-        }
-
-        condition.address =
-          static_cast<uint16_t>(
-            address);
-
-        condition.expected =
-          condition.sensor
-            ? (
-                jsonCondition["active"] |
-                false
-              )
-            : (
-                jsonCondition["closed"] |
-                false
-              );
-
-        rule.conditions[
-          rule.conditionCount++] =
-            condition;
-
-        if (condition.sensor)
-          registerSensorInput(
-            condition.address);
-      }
-
-      if (valid)
-      {
-        candidate.rules[
-          candidate.ruleCount++] =
-            rule;
-      }
-    }
-
-    groups[
-      loadedGroupCount++] =
-        candidate;
   }
 }
-}
+
+bool parseJsonlRules(
+  File &rulesFile,
+  JsonDocument &layout)
+{
+  bool sawMeta = false;
+
+  while (rulesFile.available())
+  {
+    while (rulesFile.available())
+    {
+      const int next = rulesFile.peek();
+      if (next != '\r' && next != '\n' && next != ' ' && next != '\t')
+        break;
+      rulesFile.read();
+    }
+
+    if (!rulesFile.available())
+      break;
+
+    JsonDocument row;
+    const DeserializationError error =
+      deserializeJson(row, rulesFile);
+
+    if (error)
+    {
+      Serial.printf(
+        "Signal logic: invalid JSONL row: %s\n",
+        error.c_str());
+      return false;
+    }
+
+    const char *kind = row["kind"] | "";
+
+    if (!strcmp(kind, "meta"))
+    {
+      enabled = row["enabled"] | false;
+      sawMeta = true;
+      continue;
+    }
+
+    if (!strcmp(kind, "group"))
+    {
+      JsonObjectConst group =
+        row["group"].is<JsonObjectConst>()
+          ? row["group"].as<JsonObjectConst>()
+          : row.as<JsonObjectConst>();
+
+      parseRuleGroup(group, layout);
+
+      if (loadedGroupCount >= MAX_GROUPS)
+        break;
+    }
+  }
+
+  if (!sawMeta)
+  {
+    Serial.println(
+      F("Signal logic: JSONL meta row is missing."));
+    return false;
+  }
+
+  return true;
+}}
 
 void DCCExpressLiteSignalLogic::begin(
   TurnoutStateReader turnoutReader,
@@ -982,28 +1097,21 @@ void DCCExpressLiteSignalLogic::begin(
   readVpin = vpinReader;
   writeOutput = outputWriter;
 
-  if (!LittleFS.exists(RULES_PATH))
+  if (!LittleFS.exists(RULES_PATH) &&
+      !LittleFS.exists(LEGACY_RULES_PATH))
   {
-    File file =
-      LittleFS.open(
-        RULES_PATH,
-        "w");
+    File file = LittleFS.open(RULES_PATH, "w");
 
     if (file)
     {
-      file.print(
-        F(
-          "{\"version\":3,"
-          "\"enabled\":false,"
-          "\"groups\":[]}"
-        )
-      );
-
+      file.println(
+        F("{\"kind\":\"meta\",\"version\":3,\"enabled\":false}"));
       file.close();
     }
   }
 
   reload();
+  rememberRulesFingerprint();
 }
 
 bool DCCExpressLiteSignalLogic::reload()
@@ -1013,97 +1121,98 @@ bool DCCExpressLiteSignalLogic::reload()
   enabled = false;
   running = false;
 
-  File rulesFile =
-    LittleFS.open(
-      RULES_PATH,
-      "r");
+  File layoutFile = LittleFS.open(LAYOUT_PATH, "r");
 
-  if (!rulesFile)
+  if (!layoutFile)
   {
     Serial.println(
-      F(
-        "Signal logic: rules file is unavailable."
-      )
-    );
-
+      F("Signal logic: layout file is unavailable."));
     return false;
   }
 
-  JsonDocument rulesDocument;
+  JsonDocument layoutDocument;
+  const DeserializationError layoutError =
+    deserializeJson(layoutDocument, layoutFile);
+  layoutFile.close();
 
-  const DeserializationError
-    rulesError =
-      deserializeJson(
-        rulesDocument,
-        rulesFile);
-
-  rulesFile.close();
-
-  if (rulesError)
+  if (layoutError)
   {
     Serial.printf(
-      "Signal logic: invalid rules JSON: %s\n",
-      rulesError.c_str());
-
+      "Signal logic: invalid layout JSON: %s\n",
+      layoutError.c_str());
     return false;
   }
 
-  File layoutFile =
-    LittleFS.open(
-      LAYOUT_PATH,
-      "r");
+  bool loaded = false;
 
-  if (layoutFile)
+  if (LittleFS.exists(RULES_PATH))
   {
-    JsonDocument layoutDocument;
+    File rulesFile = LittleFS.open(RULES_PATH, "r");
 
-    const DeserializationError
-      layoutError =
-        deserializeJson(
-          layoutDocument,
-          layoutFile);
-
-    layoutFile.close();
-
-    if (!layoutError)
+    if (!rulesFile)
     {
-      parseRules(
-        rulesDocument,
-        layoutDocument);
+      Serial.println(
+        F("Signal logic: JSONL rules file is unavailable."));
+      return false;
     }
-    else
-    {
-      Serial.printf(
-        "Signal logic: invalid layout JSON: %s\n",
-        layoutError.c_str());
-    }
+
+    loaded = parseJsonlRules(rulesFile, layoutDocument);
+    rulesFile.close();
   }
   else
   {
-    Serial.println(
-      F(
-        "Signal logic: layout file is unavailable."
-      )
-    );
+    File rulesFile = LittleFS.open(LEGACY_RULES_PATH, "r");
+
+    if (!rulesFile)
+    {
+      Serial.println(
+        F("Signal logic: legacy rules file is unavailable."));
+      return false;
+    }
+
+    JsonDocument rulesDocument;
+    const DeserializationError rulesError =
+      deserializeJson(rulesDocument, rulesFile);
+    rulesFile.close();
+
+    if (rulesError)
+    {
+      Serial.printf(
+        "Signal logic: invalid legacy rules JSON: %s\n",
+        rulesError.c_str());
+      return false;
+    }
+
+    parseRules(rulesDocument, layoutDocument);
+    loaded = true;
   }
+
+  if (!loaded)
+    return false;
 
   running = enabled;
   evaluationPending = running;
   lastSensorPollAtMs = 0;
 
+  rememberRulesFingerprint();
+
   Serial.printf(
-    "Signal logic: %s, %u group(s), %u sensor input(s).\n",
-    running
-      ? "enabled"
-      : "disabled",
+    "Signal logic: %s, %u group(s), %u sensor input(s), format=%s.\n",
+    running ? "enabled" : "disabled",
     loadedGroupCount,
-    sensorInputCount);
+    sensorInputCount,
+    LittleFS.exists(RULES_PATH) ? "jsonl" : "legacy-json");
 
   return true;
 }
 
 void DCCExpressLiteSignalLogic::loop()
 {
+  if (rulesFileChanged())
+  {
+    reload();
+  }
+
   if (!running)
     return;
 

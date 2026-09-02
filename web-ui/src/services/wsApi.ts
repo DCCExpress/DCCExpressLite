@@ -44,7 +44,6 @@ class WebSocketApi {
     const message: TypedClientWsMessage<TType> = {
       type,
       data,
-      uuid: this.uuid,
     };
 
     return wsClient.send(message);

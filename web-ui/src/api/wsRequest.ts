@@ -1,14 +1,9 @@
-
 import type {
   ClientWsMessageType,
   ClientWsPayloadMap,
   ServerWsMessageType,
   ServerWsPayloadMap,
 } from "@domain/types";
-
-import {
-  generateId,
-} from "../helpers";
 
 import {
   wsApi,
@@ -27,6 +22,20 @@ type ResponsePayload<T extends ServerWsMessageType> =
 type RequestWsCommandOptions = {
   timeoutMs?: number;
 };
+
+let requestSequence = 0;
+
+function newRequestId(): string {
+  requestSequence++;
+
+  if (requestSequence > 0x7fffffff) {
+    requestSequence = 1;
+  }
+
+  // Base36 keeps the JSON correlation key tiny while preserving the existing
+  // string requestId API everywhere else in the application.
+  return requestSequence.toString(36);
+}
 
 function isMatchingRequestId(
   data: unknown,
@@ -65,7 +74,7 @@ export async function requestWsCommand<
   fallbackError: string,
   options: RequestWsCommandOptions = {}
 ): Promise<ResponsePayload<TServerType>> {
-  const requestId = generateId();
+  const requestId = newRequestId();
 
   let response: ResponsePayload<TServerType>;
 
@@ -77,10 +86,11 @@ export async function requestWsCommand<
         ...payload,
       } as ClientWsPayloadMap[TClientType],
       serverType,
-      data => isMatchingRequestId(
-        data,
-        requestId
-      ),
+      data =>
+        isMatchingRequestId(
+          data,
+          requestId
+        ),
       options.timeoutMs
     ) as ResponsePayload<TServerType>;
   } catch (error) {
@@ -93,7 +103,8 @@ export async function requestWsCommand<
 
   if (!response.ok) {
     throw new Error(
-      response.message ?? fallbackError
+      response.message ??
+        fallbackError
     );
   }
 

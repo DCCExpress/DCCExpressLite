@@ -101,13 +101,13 @@ import type {
 export type WsMessage<T = unknown> = {
   type: string;
   data?: T;
-  uuid: string | null;
+  uuid?: string | null;
 };
 
 export type ClientWsMessage<T = unknown> = {
   type: string;
   data?: T;
-  uuid: string;
+  uuid?: string;
 };
 
 export type {
@@ -181,7 +181,7 @@ export type TypedClientWsMessage<TType extends ClientWsMessageType = ClientWsMes
   [K in TType]: {
     type: K;
     data: ClientWsPayloadMap[K];
-    uuid: string;
+    uuid?: string;
   };
 }[TType];
 

@@ -42,7 +42,11 @@ struct WsInboundItem
   uint32_t clientId;
   uint32_t freeHeapBytes;
   size_t length;
-  char payload[WS_MAX_COMMAND_BYTES + 1];
+
+  // Allocate only the actual inbound message size.
+  // The old fixed char[7169] in every one of the 6 queue slots consumed
+  // roughly 43 KB of DRAM even while the WebSocket was idle.
+  char *payload = nullptr;
 };
 
 struct PendingWsMessage
@@ -92,32 +96,63 @@ static bool enqueueWsInbound(WsInboundKind kind, uint32_t clientId,
     return false;
   }
 
+  char *payloadCopy = nullptr;
+
+  if (payload && length)
+  {
+    payloadCopy = static_cast<char *>(malloc(length + 1));
+
+    if (!payloadCopy)
+    {
+      ++droppedWsCommands;
+      ++droppedWsLowMemory;
+      return false;
+    }
+
+    memcpy(payloadCopy, payload, length);
+    payloadCopy[length] = '\0';
+  }
+
   uint8_t slotIndex;
+
   portENTER_CRITICAL(&wsInboundMux);
+
   if (wsInboundCount >= WS_INBOUND_QUEUE_SIZE)
   {
     ++droppedWsCommands;
     portEXIT_CRITICAL(&wsInboundMux);
+
+    if (payloadCopy)
+      free(payloadCopy);
+
     return false;
   }
+
   slotIndex = wsInboundTail;
   wsInboundTail = (wsInboundTail + 1) % WS_INBOUND_QUEUE_SIZE;
   ++wsInboundCount;
   wsInboundQueue[slotIndex].ready = false;
+
   portEXIT_CRITICAL(&wsInboundMux);
 
   WsInboundItem &slot = wsInboundQueue[slotIndex];
+
+  if (slot.payload)
+  {
+    free(slot.payload);
+    slot.payload = nullptr;
+  }
+
   slot.kind = kind;
   slot.clientId = clientId;
   slot.freeHeapBytes = ESP.getFreeHeap();
   slot.length = length;
-  if (payload && length)
-    memcpy(slot.payload, payload, length);
-  slot.payload[length] = '\0';
+  slot.payload = payloadCopy;
 
   portENTER_CRITICAL(&wsInboundMux);
   slot.ready = true;
   portEXIT_CRITICAL(&wsInboundMux);
+
   return true;
 }
 
@@ -133,14 +168,27 @@ static WsInboundItem *peekWsInbound()
 
 static void popWsInbound()
 {
+  char *payloadToFree = nullptr;
+
   portENTER_CRITICAL(&wsInboundMux);
+
   if (wsInboundCount)
   {
-    wsInboundQueue[wsInboundHead].ready = false;
+    WsInboundItem &slot = wsInboundQueue[wsInboundHead];
+
+    payloadToFree = slot.payload;
+    slot.payload = nullptr;
+    slot.length = 0;
+    slot.ready = false;
+
     wsInboundHead = (wsInboundHead + 1) % WS_INBOUND_QUEUE_SIZE;
     --wsInboundCount;
   }
+
   portEXIT_CRITICAL(&wsInboundMux);
+
+  if (payloadToFree)
+    free(payloadToFree);
 }
 
 static uint8_t wsInboundLength()
@@ -296,10 +344,6 @@ static String makeMessage(const char *type, const String &data, const char *uuid
     json += ",\"uuid\":\"";
     json += escapeJson(String(uuid));
     json += "\"";
-  }
-  else
-  {
-    json += ",\"uuid\":null";
   }
 
   json += "}";

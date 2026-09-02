@@ -54,7 +54,6 @@ const WS_DEBUG = false;
  * BÁRMELY érvényes bejövő WS üzenet bizonyítja,
  * hogy a kapcsolat működik.
  */
-const HEARTBEAT_UUID = "__dccexpresslite_ws_heartbeat__";
 const HEARTBEAT_INTERVAL_MS = 5000;
 const HEARTBEAT_TIMEOUT_MS = 15000;
 
@@ -168,7 +167,7 @@ class WsClient {
                  * Így a <#> heartbeat teljesen láthatatlan
                  * marad az alkalmazás többi része számára.
                  */
-                if (message.uuid === HEARTBEAT_UUID) {
+                if (message.type === "heartbeatAck") {
                     if (WS_DEBUG) {
                         console.debug("[WS] heartbeat response");
                     }
@@ -515,7 +514,6 @@ class WsClient {
         const heartbeatMessage: ClientWsMessage = {
             type: "heartbeat",
             data: {},
-            uuid: HEARTBEAT_UUID,
         };
 
         try {
