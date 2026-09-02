@@ -18,7 +18,6 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core";
-
 import {
   IconBolt,
   IconDeviceFloppy,
@@ -26,22 +25,15 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import AppModal from "@/components/common/AppModal";
-
 import type {
   SignalDccDirection,
   SignalOutputConfiguration,
   SignalOutputProtocol,
   SignalOutputState,
 } from "@/domain/layout/signalOutput";
-
 import {
   cloneSignalOutputConfiguration,
   MAX_SIGNAL_LAMPS,
@@ -54,9 +46,7 @@ type Props = {
   opened: boolean;
   value: SignalOutputConfiguration;
   onClose: () => void;
-  onApply: (
-    value: SignalOutputConfiguration
-  ) => void;
+  onApply: (value: SignalOutputConfiguration) => void;
   onTestState?: (
     config: SignalOutputConfiguration,
     state: SignalOutputState
@@ -64,54 +54,36 @@ type Props = {
 };
 
 const DCC_DIRECTION_OPTIONS = [
-  {
-    value: "R",
-    label: "R",
-  },
-  {
-    value: "G",
-    label: "G",
-  },
-] satisfies Array<{
-  value: SignalDccDirection;
-  label: string;
-}>;
+  { value: "R", label: "R" },
+  { value: "G", label: "G" },
+] satisfies Array<{ value: SignalDccDirection; label: string }>;
 
-function clamp(
-  value: number,
-  min: number,
-  max: number
-): number {
-  return Math.max(
-    min,
-    Math.min(
-      max,
-      Math.trunc(value)
-    )
-  );
+const SIGNAL_LAMP_COLORS = [
+  //"#000000", // black
+  "#fa5252", // red
+  "#fab005", // yellow
+  "#40c057", // green
+  "#ffffff", // white
+  "#228be6", // blue
+  "#f783ac", // pink
+];
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
 function commandPreview(
   config: SignalOutputConfiguration,
   state: SignalOutputState
 ): string {
-  if (
-    config.protocol ===
-    "dccext"
-  ) {
+  if (config.protocol === "dccext") {
     return `<A ${config.address} ${state.aspect}>`;
   }
 
   return state.dccOutputs
-    .slice(
-      0,
-      config.outputCount
-    )
+    .slice(0, config.outputCount)
     .map(
-      (
-        direction,
-        index
-      ) =>
+      (direction, index) =>
         `<a ${config.address + index} ${direction === "G" ? 1 : 0}>`
     )
     .join("  ");
@@ -124,47 +96,26 @@ function LampPreview({
   state: SignalOutputState;
   lampCount: number;
 }) {
-  const lamps =
-    resizeSignalLamps(
-      state.lamps,
-      lampCount
-    );
+  const lamps = resizeSignalLamps(state.lamps, lampCount);
 
   return (
-    <Group
-      gap={5}
-      wrap="nowrap"
-    >
-      {lamps.map(
-        (
-          lamp,
-          index
-        ) => (
-          <Box
-            key={
-              index
-            }
-            w={18}
-            h={18}
-            style={{
-              flex:
-                "0 0 auto",
-              borderRadius:
-                "50%",
-              background:
-                lamp.active
-                  ? lamp.color
-                  : "var(--mantine-color-dark-5)",
-              border:
-                "1px solid var(--mantine-color-gray-6)",
-              boxShadow:
-                lamp.active
-                  ? `0 0 7px ${lamp.color}`
-                  : undefined,
-            }}
-          />
-        )
-      )}
+    <Group gap={5} wrap="nowrap">
+      {lamps.map((lamp, index) => (
+        <Box
+          key={index}
+          w={18}
+          h={18}
+          style={{
+            flex: "0 0 auto",
+            borderRadius: "50%",
+            background: lamp.active
+              ? lamp.color
+              : "var(--mantine-color-dark-5)",
+            border: "1px solid var(--mantine-color-gray-6)",
+            boxShadow: lamp.active ? `0 0 7px ${lamp.color}` : undefined,
+          }}
+        />
+      ))}
     </Group>
   );
 }
@@ -176,396 +127,170 @@ export default function SignalOutputDialog({
   onApply,
   onTestState,
 }: Props) {
-  const [
-    draft,
-    setDraft,
-  ] =
-    useState<SignalOutputConfiguration>(
-      () =>
-        cloneSignalOutputConfiguration(
-          value
-        )
-    );
+  const [draft, setDraft] = useState<SignalOutputConfiguration>(() =>
+    cloneSignalOutputConfiguration(value)
+  );
 
   useEffect(() => {
-    if (!opened) {
-      return;
-    }
+    if (!opened) return;
+    setDraft(cloneSignalOutputConfiguration(value));
+  }, [opened, value]);
 
-    setDraft(
-      cloneSignalOutputConfiguration(
-        value
-      )
-    );
-  }, [
-    opened,
-    value,
-  ]);
-
-  const dccAddresses =
-    useMemo(
-      () =>
-        Array.from(
-          {
-            length:
-              draft.outputCount,
-          },
-          (
-            _,
-            index
-          ) =>
-            draft.address +
-            index
-        ),
-      [
-        draft.address,
-        draft.outputCount,
-      ]
-    );
+  const dccAddresses = useMemo(
+    () => Array.from({ length: draft.outputCount }, (_, index) => draft.address + index),
+    [draft.address, draft.outputCount]
+  );
 
   const updateState = (
     stateId: string,
-    updater: (
-      state: SignalOutputState
-    ) => SignalOutputState
+    updater: (state: SignalOutputState) => SignalOutputState
   ) => {
-    setDraft(
-      current => ({
-        ...current,
-        states:
-          current.states.map(
-            state =>
-              state.id ===
-              stateId
-                ? updater(
-                    state
-                  )
-                : state
-          ),
-      })
-    );
+    setDraft(current => ({
+      ...current,
+      states: current.states.map(state =>
+        state.id === stateId ? updater(state) : state
+      ),
+    }));
   };
 
-  const changeProtocol = (
-    raw: string
-  ) => {
-    setDraft(
-      current => ({
-        ...current,
-        protocol:
-          raw as SignalOutputProtocol,
-      })
-    );
+  const changeProtocol = (raw: string) => {
+    setDraft(current => ({
+      ...current,
+      protocol: raw as SignalOutputProtocol,
+    }));
   };
 
-  const changeAddress = (
-    raw: string | number
-  ) => {
-    const numeric =
-      typeof raw ===
-      "number"
-        ? raw
-        : Number(raw);
-
-    setDraft(
-      current => ({
-        ...current,
-        address:
-          clamp(
-            Number.isFinite(
-              numeric
-            )
-              ? numeric
-              : 1,
-            1,
-            2048
-          ),
-      })
-    );
+  const changeAddress = (raw: string | number) => {
+    const numeric = typeof raw === "number" ? raw : Number(raw);
+    setDraft(current => ({
+      ...current,
+      address: clamp(Number.isFinite(numeric) ? numeric : 1, 1, 2048),
+    }));
   };
 
-  const changeLampCount = (
-    raw: string | number
-  ) => {
-    const numeric =
-      typeof raw ===
-      "number"
-        ? raw
-        : Number(raw);
+  const changeLampCount = (raw: string | number) => {
+    const numeric = typeof raw === "number" ? raw : Number(raw);
+    const lampCount = clamp(
+      Number.isFinite(numeric) ? numeric : 1,
+      1,
+      MAX_SIGNAL_LAMPS
+    );
 
-    const lampCount =
-      clamp(
-        Number.isFinite(
-          numeric
-        )
-          ? numeric
-          : 1,
-        1,
-        MAX_SIGNAL_LAMPS
+    setDraft(current => ({
+      ...current,
+      lampCount,
+      states: current.states.map(state => ({
+        ...state,
+        lamps: resizeSignalLamps(state.lamps, lampCount),
+      })),
+    }));
+  };
+
+  const changeOutputCount = (raw: string | number) => {
+    const numeric = typeof raw === "number" ? raw : Number(raw);
+    const outputCount = clamp(Number.isFinite(numeric) ? numeric : 1, 1, 16);
+
+    setDraft(current => ({
+      ...current,
+      outputCount,
+      states: current.states.map(state => ({
+        ...state,
+        dccOutputs: resizeDccOutputs(state.dccOutputs, outputCount),
+      })),
+    }));
+  };
+
+  const addState = () => {
+    setDraft(current => {
+      const nextAspect = clamp(
+        current.states.reduce((max, state) => Math.max(max, state.aspect), -1) + 1,
+        0,
+        255
       );
 
-    setDraft(
-      current => ({
+      return {
         ...current,
-        lampCount,
-        states:
-          current.states.map(
-            state => ({
-              ...state,
-              lamps:
-                resizeSignalLamps(
-                  state.lamps,
-                  lampCount
-                ),
-            })
-          ),
-      })
-    );
-  };
-
-  const changeOutputCount = (
-    raw: string | number
-  ) => {
-    const numeric =
-      typeof raw ===
-      "number"
-        ? raw
-        : Number(raw);
-
-    const outputCount =
-      clamp(
-        Number.isFinite(
-          numeric
-        )
-          ? numeric
-          : 1,
-        1,
-        16
-      );
-
-    setDraft(
-      current => ({
-        ...current,
-        outputCount,
-        states:
-          current.states.map(
-            state => ({
-              ...state,
-              dccOutputs:
-                resizeDccOutputs(
-                  state.dccOutputs,
-                  outputCount
-                ),
-            })
-          ),
-      })
-    );
-  };
-
-  const addState =
-    () => {
-      setDraft(
-        current => {
-          const nextAspect =
-            clamp(
-              current.states.reduce(
-                (
-                  max,
-                  state
-                ) =>
-                  Math.max(
-                    max,
-                    state.aspect
-                  ),
-                -1
-              ) + 1,
-              0,
-              255
-            );
-
-          return {
-            ...current,
-            states: [
-              ...current.states,
-              {
-                id:
-                  newSignalOutputStateId(),
-                label:
-                  `Aspect ${current.states.length + 1}`,
-                aspect:
-                  nextAspect,
-                lamps:
-                  Array.from(
-                    {
-                      length:
-                        current.lampCount,
-                    },
-                    () => ({
-                      color:
-                        "#868e96",
-                      active:
-                        false,
-                    })
-                  ),
-                dccOutputs:
-                  Array.from(
-                    {
-                      length:
-                        current.outputCount,
-                    },
-                    () =>
-                      "R" as const
-                  ),
-              },
-            ],
-          };
-        }
-      );
-    };
-
-  const removeState = (
-    stateId: string
-  ) => {
-    setDraft(
-      current => {
-        if (
-          current.states
-            .length <= 2
-        ) {
-          return current;
-        }
-
-        return {
-          ...current,
-          states:
-            current.states.filter(
-              state =>
-                state.id !==
-                stateId
+        states: [
+          ...current.states,
+          {
+            id: newSignalOutputStateId(),
+            label: `Aspect ${current.states.length + 1}`,
+            aspect: nextAspect,
+            lamps: Array.from({ length: current.lampCount }, () => ({
+              color: "#fa5252",
+              active: false,
+            })),
+            dccOutputs: Array.from(
+              { length: current.outputCount },
+              () => "R" as const
             ),
-        };
-      }
-    );
+          },
+        ],
+      };
+    });
+  };
+
+  const removeState = (stateId: string) => {
+    setDraft(current => {
+      if (current.states.length <= 2) return current;
+      return {
+        ...current,
+        states: current.states.filter(state => state.id !== stateId),
+      };
+    });
   };
 
   return (
     <AppModal
-      opened={
-        opened
-      }
-      onClose={
-        onClose
-      }
+      opened={opened}
+      onClose={onClose}
       title="Signal configuration"
       size="90vw"
       draggable
       centered
       styles={{
-        content: {
-          height:
-            "90vh",
-        },
-        body: {
-          height:
-            "calc(90vh - 56px)",
-          overflow:
-            "auto",
-        },
+        content: { height: "90vh" },
+        body: { height: "calc(90vh - 56px)", overflow: "auto" },
       }}
     >
       <Stack gap="md">
-        <Paper
-          withBorder
-          p="sm"
-        >
+        <Paper withBorder p="sm">
           <Stack gap="sm">
-            <Group
-              justify="space-between"
-              align="center"
-            >
+            <Group justify="space-between" align="center">
               <Box>
-                <Text
-                  fw={800}
-                >
-                  Signal definition
-                </Text>
-
-                <Text
-                  size="xs"
-                  c="dimmed"
-                >
-                  Physical lamps,
-                  logical states
-                  and DCC mapping
-                  are independent.
+                <Text fw={800}>Signal definition</Text>
+                <Text size="xs" c="dimmed">
+                  Physical lamps, logical states and DCC mapping are independent.
                 </Text>
               </Box>
 
               <Badge
                 variant="light"
-                color={
-                  draft.protocol ===
-                  "dccext"
-                    ? "violet"
-                    : "blue"
-                }
+                color={draft.protocol === "dccext" ? "violet" : "blue"}
               >
-                {draft.protocol ===
-                "dccext"
-                  ? "DCC Extended"
-                  : "DCC"}
+                {draft.protocol === "dccext" ? "DCC Extended" : "DCC"}
               </Badge>
             </Group>
 
             <SegmentedControl
               fullWidth
-              value={
-                draft.protocol
-              }
-              onChange={
-                changeProtocol
-              }
+              value={draft.protocol}
+              onChange={changeProtocol}
               data={[
-                {
-                  value:
-                    "dcc",
-                  label:
-                    "DCC",
-                },
-                {
-                  value:
-                    "dccext",
-                  label:
-                    "DCC Extended",
-                },
+                { value: "dcc", label: "DCC" },
+                { value: "dccext", label: "DCC Extended" },
               ]}
             />
 
-            <Group
-              grow
-              align="flex-start"
-            >
+            <Group grow align="flex-start">
               <NumberInput
-                label={
-                  draft.protocol ===
-                  "dccext"
-                    ? "DCC address"
-                    : "Start DCC address"
-                }
-                value={
-                  draft.address
-                }
+                label={draft.protocol === "dccext" ? "DCC address" : "Start DCC address"}
+                value={draft.address}
                 min={1}
                 max={2048}
-                allowDecimal={
-                  false
-                }
-                allowNegative={
-                  false
-                }
-                onChange={
-                  changeAddress
-                }
+                allowDecimal={false}
+                allowNegative={false}
+                onChange={changeAddress}
               />
 
               <Switch
@@ -585,83 +310,40 @@ export default function SignalOutputDialog({
               <NumberInput
                 label="Physical lamps"
                 description={`Number of lamps drawn on the layout (max ${MAX_SIGNAL_LAMPS})`}
-                value={
-                  draft.lampCount
-                }
+                value={draft.lampCount}
                 min={1}
                 max={MAX_SIGNAL_LAMPS}
-                allowDecimal={
-                  false
-                }
-                allowNegative={
-                  false
-                }
-                onChange={
-                  changeLampCount
-                }
+                allowDecimal={false}
+                allowNegative={false}
+                onChange={changeLampCount}
               />
 
-              {draft.protocol ===
-                "dcc" && (
+              {draft.protocol === "dcc" && (
                 <NumberInput
                   label="DCC output addresses"
                   description="Consecutive accessory addresses"
-                  value={
-                    draft.outputCount
-                  }
+                  value={draft.outputCount}
                   min={1}
                   max={16}
-                  allowDecimal={
-                    false
-                  }
-                  allowNegative={
-                    false
-                  }
-                  onChange={
-                    changeOutputCount
-                  }
+                  allowDecimal={false}
+                  allowNegative={false}
+                  onChange={changeOutputCount}
                 />
               )}
             </Group>
           </Stack>
         </Paper>
 
-        <Group
-          justify="space-between"
-          align="flex-end"
-        >
+        <Group justify="space-between" align="flex-end">
           <Box>
-            <Text
-              fw={800}
-            >
-              Signal states /
-              aspects
-            </Text>
-
-            <Text
-              size="sm"
-              c="dimmed"
-            >
-              Each row is one
-              logical state.
-              The number of
-              states does not
-              have to match the
-              number of lamps.
+            <Text fw={800}>Signal states / aspects</Text>
+            <Text size="sm" c="dimmed">
+              Each row is one logical state. The number of states does not have to
+              match the number of lamps.
             </Text>
           </Box>
 
-          <Button
-            variant="light"
-            leftSection={
-              <IconPlus
-                size={16}
-              />
-            }
-            onClick={
-              addState
-            }
-          >
+          <Button variant="light" leftSection={<IconPlus size={16} />} onClick={addState}>
             Add aspect
           </Button>
         </Group>
@@ -672,518 +354,234 @@ export default function SignalOutputDialog({
           offsetScrollbars
           scrollbarSize={10}
           w="100%"
-          style={{
-            maxWidth: "100%",
-          }}
+          style={{ maxWidth: "100%" }}
         >
           <Table
             striped
             highlightOnHover
             withTableBorder
             withColumnBorders
-            w={
-              Math.max(
-                1050,
-                430 +
-                  draft.lampCount *
-                    155 +
-                  (
-                    draft.protocol ===
-                    "dcc"
-                      ? draft.outputCount *
-                        90
-                      : 120
-                  )
-              )
-            }
-            miw={
-              Math.max(
-                1050,
-                430 +
-                  draft.lampCount *
-                    155 +
-                  (
-                    draft.protocol ===
-                    "dcc"
-                      ? draft.outputCount *
-                        90
-                      : 120
-                  )
-              )
-            }
+            w={Math.max(
+              1050,
+              430 +
+                draft.lampCount * 155 +
+                (draft.protocol === "dcc" ? draft.outputCount * 90 : 120)
+            )}
+            miw={Math.max(
+              1050,
+              430 +
+                draft.lampCount * 155 +
+                (draft.protocol === "dcc" ? draft.outputCount * 90 : 120)
+            )}
           >
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>
-                  State
-                </Table.Th>
+                <Table.Th>State</Table.Th>
+                <Table.Th>Preview</Table.Th>
 
-                <Table.Th>
-                  Preview
-                </Table.Th>
-
-                {Array.from(
-                  {
-                    length:
-                      draft.lampCount,
-                  },
-                  (
-                    _,
-                    index
-                  ) => (
-                    <Table.Th
-                      key={`lamp-head-${index}`}
-                      ta="center"
-                    >
-                      Lamp{" "}
-                      {index +
-                        1}
-                    </Table.Th>
-                  )
-                )}
-
-                {draft.protocol ===
-                "dccext" ? (
-                  <Table.Th>
-                    Aspect
+                {Array.from({ length: draft.lampCount }, (_, index) => (
+                  <Table.Th key={`lamp-head-${index}`} ta="center">
+                    Lamp {index + 1}
                   </Table.Th>
+                ))}
+
+                {draft.protocol === "dccext" ? (
+                  <Table.Th>Aspect</Table.Th>
                 ) : (
-                  dccAddresses.map(
-                    address => (
-                      <Table.Th
-                        key={`dcc-head-${address}`}
-                        ta="center"
-                      >
-                        {address}
-                      </Table.Th>
-                    )
-                  )
+                  dccAddresses.map(address => (
+                    <Table.Th key={`dcc-head-${address}`} ta="center">
+                      {address}
+                    </Table.Th>
+                  ))
                 )}
 
-                <Table.Th
-                  ta="center"
-                >
-                  Test
-                </Table.Th>
-
+                <Table.Th ta="center">Test</Table.Th>
                 <Table.Th />
               </Table.Tr>
             </Table.Thead>
 
             <Table.Tbody>
-              {draft.states.map(
-                state => {
-                  const lamps =
-                    resizeSignalLamps(
-                      state.lamps,
-                      draft.lampCount
-                    );
+              {draft.states.map(state => {
+                const lamps = resizeSignalLamps(state.lamps, draft.lampCount);
+                const outputs = resizeDccOutputs(
+                  state.dccOutputs,
+                  draft.outputCount
+                );
 
-                  const outputs =
-                    resizeDccOutputs(
-                      state.dccOutputs,
-                      draft.outputCount
-                    );
+                return (
+                  <Table.Tr key={state.id}>
+                    <Table.Td miw={160}>
+                      <TextInput
+                        value={state.label}
+                        onChange={event => {
+                          const label = event.currentTarget.value;
+                          updateState(state.id, current => ({ ...current, label }));
+                        }}
+                      />
+                    </Table.Td>
 
-                  return (
-                    <Table.Tr
-                      key={
-                        state.id
-                      }
-                    >
-                      <Table.Td
-                        miw={160}
-                      >
-                        <TextInput
-                          value={
-                            state.label
-                          }
-                          onChange={event => {
-                            const label =
-                              event.currentTarget.value;
+                    <Table.Td miw={130}>
+                      <LampPreview state={state} lampCount={draft.lampCount} />
+                    </Table.Td>
 
-                            updateState(
-                              state.id,
-                              current => ({
-                                ...current,
-                                label,
+                    {lamps.map((lamp, lampIndex) => (
+                      <Table.Td key={`${state.id}-lamp-${lampIndex}`} miw={150}>
+                        <Group gap="xs" wrap="nowrap" align="center">
+                          <Checkbox
+                            label="On"
+                            checked={lamp.active}
+                            onChange={event => {
+                              const checked = event.currentTarget.checked;
+                              updateState(state.id, current => {
+                                const nextLamps = resizeSignalLamps(
+                                  current.lamps,
+                                  draft.lampCount
+                                );
+                                nextLamps[lampIndex] = {
+                                  ...nextLamps[lampIndex]!,
+                                  active: checked,
+                                };
+                                return { ...current, lamps: nextLamps };
+                              });
+                            }}
+                          />
+
+                          <ColorInput
+                            size="xs"
+                            format="hex"
+                            value={lamp.color}
+                            withEyeDropper={false}
+                            swatches={SIGNAL_LAMP_COLORS}
+                            swatchesPerRow={6}
+                            style={{ flex: 1 }}
+                            onChange={color =>
+                              updateState(state.id, current => {
+                                const nextLamps = resizeSignalLamps(
+                                  current.lamps,
+                                  draft.lampCount
+                                );
+                                nextLamps[lampIndex] = {
+                                  ...nextLamps[lampIndex]!,
+                                  color,
+                                };
+                                return { ...current, lamps: nextLamps };
                               })
-                            );
+                            }
+                          />
+                        </Group>
+                      </Table.Td>
+                    ))}
+
+                    {draft.protocol === "dccext" ? (
+                      <Table.Td miw={110}>
+                        <NumberInput
+                          value={state.aspect}
+                          min={0}
+                          max={255}
+                          allowDecimal={false}
+                          allowNegative={false}
+                          onChange={raw => {
+                            const numeric =
+                              typeof raw === "number" ? raw : Number(raw);
+                            updateState(state.id, current => ({
+                              ...current,
+                              aspect: clamp(
+                                Number.isFinite(numeric) ? numeric : 0,
+                                0,
+                                255
+                              ),
+                            }));
                           }}
                         />
                       </Table.Td>
-
-                      <Table.Td
-                        miw={130}
-                      >
-                        <LampPreview
-                          state={
-                            state
-                          }
-                          lampCount={
-                            draft.lampCount
-                          }
-                        />
-                      </Table.Td>
-
-                      {lamps.map(
-                        (
-                          lamp,
-                          lampIndex
-                        ) => (
-                          <Table.Td
-                            key={`${state.id}-lamp-${lampIndex}`}
-                            miw={
-                              150
+                    ) : (
+                      outputs.map((direction, outputIndex) => (
+                        <Table.Td key={`${state.id}-out-${outputIndex}`} miw={85}>
+                          <Select
+                            value={direction}
+                            data={DCC_DIRECTION_OPTIONS}
+                            allowDeselect={false}
+                            onChange={raw =>
+                              updateState(state.id, current => {
+                                const nextOutputs = resizeDccOutputs(
+                                  current.dccOutputs,
+                                  draft.outputCount
+                                );
+                                nextOutputs[outputIndex] = raw === "G" ? "G" : "R";
+                                return { ...current, dccOutputs: nextOutputs };
+                              })
                             }
-                          >
-                            <Stack
-                              gap={5}
-                            >
-                              <Checkbox
-                                label="On"
-                                checked={
-                                  lamp.active
-                                }
-                                onChange={event => {
-                                  const checked =
-                                    event.currentTarget.checked;
-
-                                  updateState(
-                                    state.id,
-                                    current => {
-                                      const nextLamps =
-                                        resizeSignalLamps(
-                                          current.lamps,
-                                          draft.lampCount
-                                        );
-
-                                      nextLamps[
-                                        lampIndex
-                                      ] = {
-                                        ...nextLamps[
-                                          lampIndex
-                                        ]!,
-                                        active:
-                                          checked,
-                                      };
-
-                                      return {
-                                        ...current,
-                                        lamps:
-                                          nextLamps,
-                                      };
-                                    }
-                                  );
-                                }}
-                              />
-
-                              <ColorInput
-                                size="xs"
-                                format="hex"
-                                value={
-                                  lamp.color
-                                }
-                                swatches={[
-                                  "#fa5252",
-                                  "#40c057",
-                                  "#fab005",
-                                  "#ffffff",
-                                  "#228be6",
-                                  "#7950f2",
-                                ]}
-                                onChange={color =>
-                                  updateState(
-                                    state.id,
-                                    current => {
-                                      const nextLamps =
-                                        resizeSignalLamps(
-                                          current.lamps,
-                                          draft.lampCount
-                                        );
-
-                                      nextLamps[
-                                        lampIndex
-                                      ] = {
-                                        ...nextLamps[
-                                          lampIndex
-                                        ]!,
-                                        color,
-                                      };
-
-                                      return {
-                                        ...current,
-                                        lamps:
-                                          nextLamps,
-                                      };
-                                    }
-                                  )
-                                }
-                              />
-                            </Stack>
-                          </Table.Td>
-                        )
-                      )}
-
-                      {draft.protocol ===
-                      "dccext" ? (
-                        <Table.Td
-                          miw={
-                            110
-                          }
-                        >
-                          <NumberInput
-                            value={
-                              state.aspect
-                            }
-                            min={0}
-                            max={255}
-                            allowDecimal={
-                              false
-                            }
-                            allowNegative={
-                              false
-                            }
-                            onChange={raw => {
-                              const numeric =
-                                typeof raw ===
-                                "number"
-                                  ? raw
-                                  : Number(
-                                      raw
-                                    );
-
-                              updateState(
-                                state.id,
-                                current => ({
-                                  ...current,
-                                  aspect:
-                                    clamp(
-                                      Number.isFinite(
-                                        numeric
-                                      )
-                                        ? numeric
-                                        : 0,
-                                      0,
-                                      255
-                                    ),
-                                })
-                              );
-                            }}
                           />
                         </Table.Td>
-                      ) : (
-                        outputs.map(
-                          (
-                            direction,
-                            outputIndex
-                          ) => (
-                            <Table.Td
-                              key={`${state.id}-out-${outputIndex}`}
-                              miw={
-                                85
-                              }
-                            >
-                              <Select
-                                value={
-                                  direction
-                                }
-                                data={
-                                  DCC_DIRECTION_OPTIONS
-                                }
-                                allowDeselect={
-                                  false
-                                }
-                                onChange={raw =>
-                                  updateState(
-                                    state.id,
-                                    current => {
-                                      const nextOutputs =
-                                        resizeDccOutputs(
-                                          current.dccOutputs,
-                                          draft.outputCount
-                                        );
+                      ))
+                    )}
 
-                                      nextOutputs[
-                                        outputIndex
-                                      ] =
-                                        raw ===
-                                        "G"
-                                          ? "G"
-                                          : "R";
-
-                                      return {
-                                        ...current,
-                                        dccOutputs:
-                                          nextOutputs,
-                                      };
-                                    }
-                                  )
-                                }
-                              />
-                            </Table.Td>
-                          )
-                        )
-                      )}
-
-                      <Table.Td
-                        ta="center"
-                      >
-                        <Tooltip
-                          label={
-                            commandPreview(
-                              draft,
-                              state
-                            )
-                          }
+                    <Table.Td ta="center">
+                      <Tooltip label={commandPreview(draft, state)}>
+                        <ActionIcon
+                          size="lg"
+                          variant="light"
+                          color="teal"
+                          onClick={() => onTestState?.(draft, state)}
                         >
-                          <ActionIcon
-                            size="lg"
-                            variant="light"
-                            color="teal"
-                            onClick={() =>
-                              onTestState?.(
-                                draft,
-                                state
-                              )
-                            }
-                          >
-                            <IconBolt
-                              size={
-                                18
-                              }
-                            />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Table.Td>
+                          <IconBolt size={18} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Table.Td>
 
-                      <Table.Td
-                        ta="center"
+                    <Table.Td ta="center">
+                      <Tooltip
+                        label={
+                          draft.states.length <= 2
+                            ? "At least two states are required"
+                            : "Delete aspect"
+                        }
                       >
-                        <Tooltip
-                          label={
-                            draft
-                              .states
-                              .length <=
-                            2
-                              ? "At least two states are required"
-                              : "Delete aspect"
-                          }
+                        <ActionIcon
+                          variant="subtle"
+                          color="red"
+                          disabled={draft.states.length <= 2}
+                          onClick={() => removeState(state.id)}
                         >
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            disabled={
-                              draft
-                                .states
-                                .length <=
-                              2
-                            }
-                            onClick={() =>
-                              removeState(
-                                state.id
-                              )
-                            }
-                          >
-                            <IconTrash
-                              size={
-                                18
-                              }
-                            />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                }
-              )}
+                          <IconTrash size={18} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
             </Table.Tbody>
           </Table>
         </ScrollArea>
 
-        <Paper
-          withBorder
-          p="xs"
-        >
+        <Paper withBorder p="xs">
           <Stack gap={5}>
-            <Text
-              size="xs"
-              fw={700}
-              c="dimmed"
-            >
+            <Text size="xs" fw={700} c="dimmed">
               COMMAND PREVIEW
             </Text>
 
-            {draft.states.map(
-              state => (
-                <Group
-                  key={`preview-${state.id}`}
-                  gap="xs"
-                  wrap="nowrap"
-                >
-                  <LampPreview
-                    state={
-                      state
-                    }
-                    lampCount={
-                      draft.lampCount
-                    }
-                  />
-
-                  <Text
-                    size="xs"
-                    w={100}
-                    truncate
-                  >
-                    {state.label}
-                  </Text>
-
-                  <Text
-                    size="xs"
-                    ff="monospace"
-                    c="blue.4"
-                  >
-                    {commandPreview(
-                      draft,
-                      state
-                    )}
-                  </Text>
-                </Group>
-              )
-            )}
+            {draft.states.map(state => (
+              <Group key={`preview-${state.id}`} gap="xs" wrap="nowrap">
+                <LampPreview state={state} lampCount={draft.lampCount} />
+                <Text size="xs" w={100} truncate>
+                  {state.label}
+                </Text>
+                <Text size="xs" ff="monospace" c="blue.4">
+                  {commandPreview(draft, state)}
+                </Text>
+              </Group>
+            ))}
           </Stack>
         </Paper>
 
-        <Group
-          justify="flex-end"
-        >
-          <Button
-            variant="default"
-            leftSection={
-              <IconX
-                size={16}
-              />
-            }
-            onClick={
-              onClose
-            }
-          >
+        <Group justify="flex-end">
+          <Button variant="default" leftSection={<IconX size={16} />} onClick={onClose}>
             Cancel
           </Button>
 
           <Button
-            leftSection={
-              <IconDeviceFloppy
-                size={16}
-              />
-            }
-            onClick={() =>
-              onApply(
-                cloneSignalOutputConfiguration(
-                  draft
-                )
-              )
-            }
+            leftSection={<IconDeviceFloppy size={16} />}
+            onClick={() => onApply(cloneSignalOutputConfiguration(draft))}
           >
             Apply
           </Button>
