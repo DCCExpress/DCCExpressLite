@@ -1691,6 +1691,32 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     return;
   }
 
+  if (type == "setSignalAspect")
+  {
+    const int address = getInt(payload["address"]);
+    const int aspect = getInt(payload["aspect"]);
+
+    if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS ||
+        aspect < 0 || aspect > 255)
+    {
+      sendError(clientId, "signal_aspect_out_of_range", uuid);
+      return;
+    }
+
+    if (!trackPowerOn)
+    {
+      sendError(clientId, "track_power_off", uuid);
+      sendPowerInfo(clientId);
+      return;
+    }
+
+    dccParseRaw("<A " + String(address) + " " + String(aspect) + ">");
+    broadcastMessage("signalAspectChanged",
+      "{\"address\":" + String(address) +
+      ",\"aspect\":" + String(aspect) + "}", uuid);
+    return;
+  }
+
   if (type == "setSensor")
   {
     const int address = getInt(payload["address"]);

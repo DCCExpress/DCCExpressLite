@@ -261,8 +261,9 @@ export class TrackSignalElementView
 
   sendState(state: SignalOutputState): void {
     if (this.signalOutput.protocol === "dccext") {
-      wsApi.writeDccExDirectCommand(
-        `<A ${this.signalOutput.address} ${state.aspect}>`
+      wsApi.setSignalAspect(
+        this.signalOutput.address,
+        state.aspect
       );
 
       this.setCurrentStateById(state.id);

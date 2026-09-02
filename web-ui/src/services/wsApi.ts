@@ -235,6 +235,10 @@ class WebSocketApi {
     return this.send("setVpin", { vpin, active });
   }
 
+  setSignalAspect(address: number, aspect: number): boolean {
+    return this.send("setSignalAspect", { address, aspect });
+  }
+
   programmingCommand(
     requestId: string,
     action: ProgrammingCommandAction,

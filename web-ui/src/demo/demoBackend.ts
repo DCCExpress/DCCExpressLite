@@ -710,6 +710,24 @@ class DemoWebSocket {
       return;
     }
 
+    if (type === "setSignalAspect") {
+      this.emit(
+        "signalAspectChanged",
+        {
+          address:
+            Number(
+              payload.address
+            ) || 0,
+          aspect:
+            Number(
+              payload.aspect
+            ) || 0,
+        }
+      );
+
+      return;
+    }
+
     if (
       type === "setSensor"
     ) {

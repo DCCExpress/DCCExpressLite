@@ -4,10 +4,11 @@ import {
   Box,
   Button,
   Checkbox,
-  ColorInput,
+  ColorPicker,
   Group,
   NumberInput,
   Paper,
+  Popover,
   ScrollArea,
   SegmentedControl,
   Select,
@@ -89,32 +90,88 @@ function commandPreview(
     .join("  ");
 }
 
+function getLampColors(
+  states: SignalOutputState[],
+  lampCount: number
+): string[] {
+  return Array.from({ length: lampCount }, (_, lampIndex) => {
+    for (const state of states) {
+      const color = state.lamps[lampIndex]?.color;
+      if (color) return color;
+    }
+    return SIGNAL_LAMP_COLORS[lampIndex] ?? "#868e96";
+  });
+}
+
+function normalizeLampColors(
+  config: SignalOutputConfiguration
+): SignalOutputConfiguration {
+  const colors = getLampColors(config.states, config.lampCount);
+  return {
+    ...config,
+    states: config.states.map(state => ({
+      ...state,
+      lamps: resizeSignalLamps(state.lamps, config.lampCount).map(
+        (lamp, lampIndex) => ({
+          ...lamp,
+          color: colors[lampIndex] ?? lamp.color,
+        })
+      ),
+    })),
+  };
+}
+
 function LampPreview({
   state,
   lampCount,
+  onLampColorChange,
 }: {
   state: SignalOutputState;
   lampCount: number;
+  onLampColorChange?: (lampIndex: number, color: string) => void;
 }) {
   const lamps = resizeSignalLamps(state.lamps, lampCount);
 
   return (
     <Group gap={5} wrap="nowrap">
       {lamps.map((lamp, index) => (
-        <Box
+        <Popover
           key={index}
-          w={18}
-          h={18}
-          style={{
-            flex: "0 0 auto",
-            borderRadius: "50%",
-            background: lamp.active
-              ? lamp.color
-              : "var(--mantine-color-dark-5)",
-            border: "1px solid var(--mantine-color-gray-6)",
-            boxShadow: lamp.active ? `0 0 7px ${lamp.color}` : undefined,
-          }}
-        />
+          width={210}
+          position="bottom"
+          withArrow
+          shadow="md"
+          disabled={!onLampColorChange}
+        >
+          <Popover.Target>
+            <Box
+              role={onLampColorChange ? "button" : undefined}
+              aria-label={onLampColorChange ? `Change lamp ${index + 1} color` : undefined}
+              tabIndex={onLampColorChange ? 0 : undefined}
+              w={18}
+              h={18}
+              style={{
+                flex: "0 0 auto",
+                borderRadius: "50%",
+                background: lamp.active
+                  ? lamp.color
+                  : "var(--mantine-color-dark-5)",
+                border: `2px solid ${lamp.color}`,
+                boxShadow: lamp.active ? `0 0 7px ${lamp.color}` : undefined,
+                cursor: onLampColorChange ? "pointer" : undefined,
+              }}
+            />
+          </Popover.Target>
+          <Popover.Dropdown>
+            <ColorPicker
+              format="hex"
+              value={lamp.color}
+              swatches={SIGNAL_LAMP_COLORS}
+              swatchesPerRow={6}
+              onChange={color => onLampColorChange?.(index, color)}
+            />
+          </Popover.Dropdown>
+        </Popover>
       ))}
     </Group>
   );
@@ -133,7 +190,7 @@ export default function SignalOutputDialog({
 
   useEffect(() => {
     if (!opened) return;
-    setDraft(cloneSignalOutputConfiguration(value));
+    setDraft(normalizeLampColors(cloneSignalOutputConfiguration(value)));
   }, [opened, value]);
 
   const dccAddresses = useMemo(
@@ -150,6 +207,20 @@ export default function SignalOutputDialog({
       states: current.states.map(state =>
         state.id === stateId ? updater(state) : state
       ),
+    }));
+  };
+
+  const updateLampColor = (lampIndex: number, color: string) => {
+    setDraft(current => ({
+      ...current,
+      states: current.states.map(state => {
+        const nextLamps = resizeSignalLamps(state.lamps, current.lampCount);
+        nextLamps[lampIndex] = {
+          ...nextLamps[lampIndex]!,
+          color,
+        };
+        return { ...state, lamps: nextLamps };
+      }),
     }));
   };
 
@@ -176,14 +247,22 @@ export default function SignalOutputDialog({
       MAX_SIGNAL_LAMPS
     );
 
-    setDraft(current => ({
-      ...current,
-      lampCount,
-      states: current.states.map(state => ({
-        ...state,
-        lamps: resizeSignalLamps(state.lamps, lampCount),
-      })),
-    }));
+    setDraft(current => {
+      const colors = getLampColors(current.states, lampCount);
+      return {
+        ...current,
+        lampCount,
+        states: current.states.map(state => ({
+          ...state,
+          lamps: resizeSignalLamps(state.lamps, lampCount).map(
+            (lamp, lampIndex) => ({
+              ...lamp,
+              color: colors[lampIndex] ?? lamp.color,
+            })
+          ),
+        })),
+      };
+    });
   };
 
   const changeOutputCount = (raw: string | number) => {
@@ -202,6 +281,7 @@ export default function SignalOutputDialog({
 
   const addState = () => {
     setDraft(current => {
+      const colors = getLampColors(current.states, current.lampCount);
       const nextAspect = clamp(
         current.states.reduce((max, state) => Math.max(max, state.aspect), -1) + 1,
         0,
@@ -216,8 +296,8 @@ export default function SignalOutputDialog({
             id: newSignalOutputStateId(),
             label: `Aspect ${current.states.length + 1}`,
             aspect: nextAspect,
-            lamps: Array.from({ length: current.lampCount }, () => ({
-              color: "#fa5252",
+            lamps: Array.from({ length: current.lampCount }, (_, lampIndex) => ({
+              color: colors[lampIndex] ?? "#868e96",
               active: false,
             })),
             dccOutputs: Array.from(
@@ -364,13 +444,13 @@ export default function SignalOutputDialog({
             w={Math.max(
               1050,
               430 +
-                draft.lampCount * 155 +
+                draft.lampCount * 75 +
                 (draft.protocol === "dcc" ? draft.outputCount * 90 : 120)
             )}
             miw={Math.max(
               1050,
               430 +
-                draft.lampCount * 155 +
+                draft.lampCount * 75 +
                 (draft.protocol === "dcc" ? draft.outputCount * 90 : 120)
             )}
           >
@@ -420,13 +500,17 @@ export default function SignalOutputDialog({
                       />
                     </Table.Td>
 
-                    <Table.Td miw={130}>
-                      <LampPreview state={state} lampCount={draft.lampCount} />
+                    <Table.Td miw={150}>
+                      <LampPreview
+                        state={state}
+                        lampCount={draft.lampCount}
+                        onLampColorChange={updateLampColor}
+                      />
                     </Table.Td>
 
                     {lamps.map((lamp, lampIndex) => (
-                      <Table.Td key={`${state.id}-lamp-${lampIndex}`} miw={150}>
-                        <Group gap="xs" wrap="nowrap" align="center">
+                      <Table.Td key={`${state.id}-lamp-${lampIndex}`} miw={75}>
+                        <Group justify="center">
                           <Checkbox
                             label="On"
                             checked={lamp.active}
@@ -444,29 +528,6 @@ export default function SignalOutputDialog({
                                 return { ...current, lamps: nextLamps };
                               });
                             }}
-                          />
-
-                          <ColorInput
-                            size="xs"
-                            format="hex"
-                            value={lamp.color}
-                            withEyeDropper={false}
-                            swatches={SIGNAL_LAMP_COLORS}
-                            swatchesPerRow={6}
-                            style={{ flex: 1 }}
-                            onChange={color =>
-                              updateState(state.id, current => {
-                                const nextLamps = resizeSignalLamps(
-                                  current.lamps,
-                                  draft.lampCount
-                                );
-                                nextLamps[lampIndex] = {
-                                  ...nextLamps[lampIndex]!,
-                                  color,
-                                };
-                                return { ...current, lamps: nextLamps };
-                              })
-                            }
                           />
                         </Group>
                       </Table.Td>
@@ -562,7 +623,11 @@ export default function SignalOutputDialog({
 
             {draft.states.map(state => (
               <Group key={`preview-${state.id}`} gap="xs" wrap="nowrap">
-                <LampPreview state={state} lampCount={draft.lampCount} />
+                <LampPreview
+                  state={state}
+                  lampCount={draft.lampCount}
+                  onLampColorChange={updateLampColor}
+                />
                 <Text size="xs" w={100} truncate>
                   {state.label}
                 </Text>
@@ -581,7 +646,7 @@ export default function SignalOutputDialog({
 
           <Button
             leftSection={<IconDeviceFloppy size={16} />}
-            onClick={() => onApply(cloneSignalOutputConfiguration(draft))}
+            onClick={() => onApply(cloneSignalOutputConfiguration(normalizeLampColors(draft)))}
           >
             Apply
           </Button>

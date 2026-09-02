@@ -546,7 +546,10 @@ export default function TrackCanvas({
           setBusy,
         }
       );
-      if (handled) pressedClickableRef.current = hitElement;
+      if (handled) {
+        pressedClickableRef.current = hitElement;
+        invalidate();
+      }
       return handled;
     };
 
@@ -556,7 +559,11 @@ export default function TrackCanvas({
     ): boolean => {
       const pressedElement = pressedClickableRef.current ?? hitElement;
       pressedClickableRef.current = null;
-      return handleTrackCanvasClickableUp(pressedElement, ev);
+      const handled = handleTrackCanvasClickableUp(pressedElement, ev);
+      if (handled) {
+        invalidate();
+      }
+      return handled;
     };
 
     const handleMouseDown = (ev: MouseEvent) => {

@@ -35,6 +35,11 @@ export type VpinChangedPayload = {
   active: boolean;
 };
 
+export type SignalAspectChangedPayload = {
+  address: number;
+  aspect: number;
+};
+
 export type SensorChangedPayload = {
   address: number;
   on: boolean;

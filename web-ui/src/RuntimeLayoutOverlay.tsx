@@ -151,6 +151,19 @@ export default function RuntimeLayoutOverlay({
     invalidate();
   }), [layout, invalidate]);
 
+  useEffect(() => wsClient.on("signalAspectChanged", data => {
+    for (const element of layout.getAllElements()) {
+      if (
+        element instanceof TrackSignalElementView &&
+        element.signalOutput.protocol === "dccext" &&
+        element.signalOutput.address === data.address
+      ) {
+        element.setCurrentStateByAspect(data.aspect);
+      }
+    }
+    invalidate();
+  }), [layout, invalidate]);
+
   useEffect(() => wsClient.on("blockStateChanged", data => {
     const blocks = layout.getAllElements().filter(
       (element): element is BlockElementView =>

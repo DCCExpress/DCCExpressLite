@@ -102,6 +102,11 @@ export type SetVpinCommandPayload = {
   active: boolean;
 };
 
+export type SetSignalAspectCommandPayload = {
+  address: number;
+  aspect: number;
+};
+
 export type SetBlockCommandPayload = {
   blockId: string;
   locoId: string | null;
@@ -293,6 +298,7 @@ export type ClientWsPayloadMap = {
   setSensor: SetSensorCommandPayload;
   setBasicAccessory: SetBasicAccessoryCommandPayload;
   setVpin: SetVpinCommandPayload;
+  setSignalAspect: SetSignalAspectCommandPayload;
 
   setBlock: SetBlockCommandPayload;
   setBlockRemove: SetBlockRemoveCommandPayload;

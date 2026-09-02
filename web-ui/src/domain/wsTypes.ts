@@ -73,6 +73,7 @@ import type {
   LocoStateChangedPayload,
   SensorChangedPayload,
   SensorSnapshotPayload,
+  SignalAspectChangedPayload,
   TurnoutChangedPayload,
   VpinChangedPayload,
 } from "./railwayRuntimeEvents.js";
@@ -131,6 +132,7 @@ export const CLIENT_WS_MESSAGE_TYPES = [
   "setSensor",
   "setBasicAccessory",
   "setVpin",
+  "setSignalAspect",
   "setBlock",
   "setBlockRemove",
   "setBlocksReset",
@@ -206,6 +208,11 @@ export type TurnoutChangedMessage = {
 export type AccessoryChangedMessage = {
   type: "accessoryChanged";
   data: AccessoryChangedPayload;
+};
+
+export type SignalAspectChangedMessage = {
+  type: "signalAspectChanged";
+  data: SignalAspectChangedPayload;
 };
 
 export type CommandCenterInfo = {
@@ -328,6 +335,7 @@ export type ServerWsPayloadMap = {
   sensorSnapshot: SensorSnapshotPayload;
   accessoryChanged: AccessoryChangedPayload;
   vpinChanged: VpinChangedPayload;
+  signalAspectChanged: SignalAspectChangedPayload;
   blockStateChanged: BlockStateChangedPayload;
   locoState: LocoStateChangedPayload;
   locoReservationChanged: LocoReservationChangedPayload;

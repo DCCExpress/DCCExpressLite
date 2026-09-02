@@ -74,8 +74,7 @@ function createStatePreview(
       )
     );
 
-  preview.rotation =
-    signal.rotation;
+  preview.rotation = 90;
 
   return preview;
 }
