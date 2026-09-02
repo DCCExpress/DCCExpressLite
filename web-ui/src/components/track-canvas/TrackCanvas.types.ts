@@ -1,4 +1,3 @@
-
 import type {
   Dispatch,
   SetStateAction,
@@ -119,7 +118,11 @@ export type SelectionState = {
   endGridY: number;
 };
 
-export type SignalAspectValue = 1 | 2 | 3 | 4;
+/**
+ * Legacy name kept because it is exported from this shared file.
+ * Dynamic signals are not restricted to four values anymore.
+ */
+export type SignalAspectValue = number;
 
 export type SignalAspectPopoverState = {
   opened: boolean;

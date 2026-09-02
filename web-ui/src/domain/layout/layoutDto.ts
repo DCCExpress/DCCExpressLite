@@ -1,18 +1,14 @@
-
 import type {
   BlockType,
   ElementType,
 } from "./elementTypes.js";
 
-/**
- * A szerkesztőben használt forgatási lépcső.
- * A kliensoldali editorban eddig RotationStep néven élt.
- */
+import type {
+  SignalOutputConfiguration,
+} from "./signalOutput.js";
+
 export type RotationStepDto = 0 | 45 | 90;
 
-/**
- * A régi RouteButton routeTurnouts mezőjének közös DTO-ja.
- */
 export type RouteTurnoutItemDto = {
   turnoutId: string;
   closed: boolean;
@@ -24,27 +20,13 @@ export type AudioListButtonItemDto = {
   fileName: string;
 };
 
-export type LevelCrossingBarrierTypeDto = "none" | "half" | "full";
+export type LevelCrossingBarrierTypeDto =
+  | "none"
+  | "half"
+  | "full";
 
-/**
- * A szenzor kind mezője jelenleg kliensoldali numerikus enumként él:
- *   0 = circle
- *   1 = rect
- *
- * A mentett JSON-ban ez numerikus értékként jelenik meg,
- * ezért a közös DTO-ban most tudatosan number marad.
- */
 export type SensorKindDto = number;
 
-/**
- * Nyers, toleráns layout elem alak.
- *
- * Ezt használja a common/szerver oldali topológia beolvasáskor,
- * mert ott a mentett JSON-t robusztusan, default értékekkel dolgozzuk fel.
- *
- * A konkrét editor DTO-k lentebb ebből készülnek,
- * de ott már a fontos mezők kötelezők.
- */
 export type SerializedLayoutElementDto = {
   id?: string;
   type?: ElementType | string;
@@ -61,22 +43,8 @@ export type SerializedLayoutElementDto = {
   bg?: string;
   fg?: string;
 
-  /**
-   * Régi / kísérleti mező, a topology réteg továbbra is ismeri.
-   */
   trackName?: string;
-
-  /**
-   * Track/sensor/accessory address.
-   *
-   * Fontos: a sima track elem address mezője tudatosan megmarad,
-   * mert később ez lesz a sín elem occupancy szenzor címe.
-   */
   address?: number;
-
-  /**
-   * Általános pályaelem hossz / későbbi modellezési adat.
-   */
   length?: number;
 
   turnoutAddress?: number;
@@ -124,6 +92,12 @@ export type SerializedLayoutElementDto = {
   offsetY?: number;
   offsetX?: number;
 
+  signalOutput?: SignalOutputConfiguration;
+  currentStateIndex?: number;
+
+  /**
+   * Legacy signal fields.
+   */
   aspect?: number;
   addressLength?: number;
   dispalyAsSingleLamp?: boolean;
@@ -150,13 +124,6 @@ export type SerializedLayoutDto = {
   [key: string]: unknown;
 };
 
-/**
- * Szigorúbb, kliensoldali mentési DTO-k.
- * Ezeket használja:
- *   - BaseElement.toJSON()
- *   - az egyes Element.fromJSON(...)
- *   - ElementFactory.create(...)
- */
 export interface BaseElementDto {
   id: string;
   type: ElementType;
@@ -173,10 +140,6 @@ export interface BaseElementDto {
 }
 
 export interface TrackElementDto extends BaseElementDto {
-  /**
-   * Tudatosan marad a sima track DTO-n is:
-   * ebből lesz később a track occupancy szenzor címe.
-   */
   address: number;
   length: number;
 }
@@ -216,8 +179,14 @@ export interface TrackCrossingElementDto extends TrackElementDto {
   type: "trackcrossing";
 }
 
-export type OutputCommandModeDto = "accessory" | "vpin";
-export type ButtonBehaviorDto = "toggle" | "push" | "momentary";
+export type OutputCommandModeDto =
+  | "accessory"
+  | "vpin";
+
+export type ButtonBehaviorDto =
+  | "toggle"
+  | "push"
+  | "momentary";
 
 export interface TrackTurnoutLeftElementDto extends TrackElementDto {
   type: "trackturnoutleft";
@@ -335,17 +304,28 @@ export interface LabelElementDto extends BaseElementDto {
   offsetX: number;
 }
 
+/**
+ * `tracksignal2` is the generic signal type going forward.
+ * `tracksignal3` / `tracksignal4` are accepted only for legacy layout loading.
+ */
 export interface TrackSignalElementDto extends TrackElementDto {
-  type: "tracksignal2";
+  type:
+    | "tracksignal2"
+    | "tracksignal3"
+    | "tracksignal4";
+
+  signalOutput?: SignalOutputConfiguration;
+  currentStateIndex?: number;
+
   outputMode?: OutputCommandModeDto;
-  aspect: number;
+  aspect?: number;
   address: number;
-  addressLength: number;
-  dispalyAsSingleLamp: boolean;
-  valueGreen: number;
-  valueRed: number;
-  valueYellow: number;
-  valueWhite: number;
+  addressLength?: number;
+  dispalyAsSingleLamp?: boolean;
+  valueGreen?: number;
+  valueRed?: number;
+  valueYellow?: number;
+  valueWhite?: number;
 }
 
 export type LayoutElementDto =

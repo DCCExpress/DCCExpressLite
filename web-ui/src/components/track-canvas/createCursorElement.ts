@@ -37,14 +37,10 @@ const cursorTrackTurnoutTwoWayElement = new TrackTurnoutTwoWayElementView(0, 0);
 const cursorTrackTurnoutDoubleElement = new TrackTurnoutDoubleElementView(0, 0);
 const cursorTrackSensorElement = new TrackSensorElementView(0, 0);
 
-const cursorTrackSignal2Element = new TrackSignalElementView(0, 0);
-cursorTrackSignal2Element.aspect = 2;
-
-const cursorTrackSignal3Element = new TrackSignalElementView(0, 0);
-cursorTrackSignal3Element.aspect = 3;
-
-const cursorTrackSignal4Element = new TrackSignalElementView(0, 0);
-cursorTrackSignal4Element.aspect = 4;
+/**
+ * One generic Signal cursor.
+ */
+const cursorTrackSignalElement = new TrackSignalElementView(0, 0);
 
 const cursorTrackCrossingElement = new TrackCrossingElementView(0, 0);
 const cursorButtonElement = new ButtonElementView(0, 0);
@@ -125,14 +121,14 @@ export function createCursorElement(
     case ELEMENT_TYPES.TRACK_BLOCK:
       return cursorBlockElement;
 
+    /**
+     * New layouts use TRACK_SIGNAL2 as the one generic Signal.
+     * Legacy aliases still resolve to the same cursor.
+     */
     case ELEMENT_TYPES.TRACK_SIGNAL2:
-      return cursorTrackSignal2Element;
-
     case ELEMENT_TYPES.TRACK_SIGNAL3:
-      return cursorTrackSignal3Element;
-
     case ELEMENT_TYPES.TRACK_SIGNAL4:
-      return cursorTrackSignal4Element;
+      return cursorTrackSignalElement;
 
     case ELEMENT_TYPES.LABEL:
       return cursorLabelElement;

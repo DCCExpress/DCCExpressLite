@@ -1,4 +1,3 @@
-
 export const ELEMENT_TYPES = {
   GENERAL: "general",
   ADDRESSED_ELEMENT: "addressedelement",
@@ -20,6 +19,15 @@ export const ELEMENT_TYPES = {
 
   TRACK_SENSOR: "tracksensor",
 
+  /**
+   * New canonical signal type.
+   */
+  TRACK_SIGNAL: "tracksignal",
+
+  /**
+   * Legacy layout values. Do not use for new picker items.
+   * ElementFactory migrates them to TrackSignalElementView.
+   */
   TRACK_SIGNAL2: "tracksignal2",
   TRACK_SIGNAL3: "tracksignal3",
   TRACK_SIGNAL4: "tracksignal4",

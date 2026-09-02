@@ -1,30 +1,51 @@
 import {
-  ActionIcon,
   Box,
+  Button,
   Group,
-  NumberInput,
-  Tooltip,
+  Paper,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Text,
 } from "@mantine/core";
 
 import {
-  IconBinary,
+  IconSettings,
 } from "@tabler/icons-react";
 
 import {
+  useMemo,
   useState,
 } from "react";
 
-import BitCalculatorDialog from "@/components/tools/BitCalculatorDialog";
+import SignalOutputDialog from "@/components/SignalOutputDialog";
 
-import type { BaseElementView } from "../../models/editor/core/BaseElementView";
-import type { IEditableProperty } from "../../models/editor/elements/PropertyDescriptor";
-import { TrackSignalElementView } from "../../models/editor/elements/TrackSignalElementView";
-import ElementPreview from "../../models/editor/rendering/ElementPreviewRenderer";
+import type {
+  SignalOutputConfiguration,
+  SignalOutputState,
+} from "@domain/layout/signalOutput";
+
 import {
-  createSignalPreview,
-  type SignalPreviewColor,
-} from "./previewFactories";
-import type { SelectedElementUpdateHandler } from "./propertyPanelTypes";
+  cloneSignalOutputConfiguration,
+} from "@domain/layout/signalOutput";
+
+import type {
+  BaseElementView,
+} from "../../models/editor/core/BaseElementView";
+
+import type {
+  IEditableProperty,
+} from "../../models/editor/elements/PropertyDescriptor";
+
+import {
+  TrackSignalElementView,
+} from "../../models/editor/elements/TrackSignalElementView";
+
+import ElementPreview from "../../models/editor/rendering/ElementPreviewRenderer";
+
+import type {
+  SelectedElementUpdateHandler,
+} from "./propertyPanelTypes";
 
 type SignalAspectPropertyEditorProps = {
   prop: IEditableProperty;
@@ -32,59 +53,32 @@ type SignalAspectPropertyEditorProps = {
   onUpdateSelectedElement: SelectedElementUpdateHandler;
 };
 
-type SignalValueKey =
-  | "valueGreen"
-  | "valueRed"
-  | "valueYellow"
-  | "valueWhite";
+function createStatePreview(
+  signal: TrackSignalElementView,
+  stateIndex: number
+): TrackSignalElementView {
+  const preview =
+    new TrackSignalElementView(0, 0);
 
-type SignalAspectRow = {
-  color: SignalPreviewColor;
-  label: string;
-  valueKey: SignalValueKey;
-  send: (
-    signal: TrackSignalElementView
-  ) => void;
-  minAspect?: number;
-};
+  preview.signalOutput =
+    cloneSignalOutputConfiguration(
+      signal.signalOutput
+    );
 
-type CalculatorTarget = {
-  valueKey: SignalValueKey;
-  label: string;
-} | null;
+  preview.currentStateIndex =
+    Math.max(
+      0,
+      Math.min(
+        stateIndex,
+        preview.signalOutput.states.length - 1
+      )
+    );
 
-const rows: SignalAspectRow[] = [
-  {
-    color: 1,
-    label: "Green",
-    valueKey: "valueGreen",
-    send: signal =>
-      signal.sendGreen(),
-  },
-  {
-    color: 2,
-    label: "Red",
-    valueKey: "valueRed",
-    send: signal =>
-      signal.sendRed(),
-  },
-  {
-    color: 3,
-    label: "Yellow",
-    valueKey: "valueYellow",
-    send: signal =>
-      signal.sendYellow(),
-    minAspect: 3,
-  },
-  {
-    color: 4,
-    label: "White",
-    valueKey: "valueWhite",
-    send: signal =>
-      signal.sendWhite(),
-    minAspect: 4,
-  },
-];
+  preview.rotation =
+    signal.rotation;
+
+  return preview;
+}
 
 export default function SignalAspectPropertyEditor({
   selectedElement,
@@ -93,175 +87,172 @@ export default function SignalAspectPropertyEditor({
   const signal =
     selectedElement as TrackSignalElementView;
 
-  const [
-    calculatorTarget,
-    setCalculatorTarget,
-  ] =
-    useState<CalculatorTarget>(
-      null
+  const [opened, setOpened] =
+    useState(false);
+
+  const dialogValue =
+    useMemo(
+      () =>
+        cloneSignalOutputConfiguration(
+          signal.signalOutput
+        ),
+      [signal, opened]
     );
 
-  const openCalculator = (
-    row: SignalAspectRow
-  ) => {
-    setCalculatorTarget({
-      valueKey: row.valueKey,
-      label: row.label,
-    });
-  };
-
-  const closeCalculator = () => {
-    setCalculatorTarget(null);
-  };
-
-  const applyCalculatorValue = (
-    value: number
-  ) => {
-    if (!calculatorTarget) {
-      return;
-    }
-
-    signal[
-      calculatorTarget.valueKey
-    ] = value;
-
-    onUpdateSelectedElement(
-      signal
+  const previews =
+    useMemo(
+      () =>
+        signal.signalOutput.states.map(
+          (_, index) =>
+            createStatePreview(
+              signal,
+              index
+            )
+        ),
+      [
+        signal,
+        signal.signalOutput,
+      ]
     );
+
+  const apply = (
+    value: SignalOutputConfiguration
+  ) => {
+    signal.setSignalOutput(value);
+
+    onUpdateSelectedElement(signal);
+    setOpened(false);
   };
 
-  const calculatorValue =
-    calculatorTarget
-      ? Number(
-          signal[
-            calculatorTarget
-              .valueKey
-          ]
-        ) || 0
-      : 0;
+  const testState = (
+    config: SignalOutputConfiguration,
+    state: SignalOutputState
+  ) => {
+    signal.setSignalOutput(config);
+    signal.sendState(state);
+
+    onUpdateSelectedElement(signal);
+  };
+
+  const testCurrentState = (
+    state: SignalOutputState
+  ) => {
+    signal.sendState(state);
+    onUpdateSelectedElement(signal);
+  };
 
   return (
     <>
-      <Group>
-        {rows
-          .filter(
-            row =>
-              !row.minAspect ||
-              signal.aspect >=
-                row.minAspect
-          )
-          .map(row => (
-            <Group
-              key={row.label}
-              gap="xs"
-              wrap="nowrap"
-            >
-              <Box className="route-turnout-preview-button">
-                <ElementPreview
+      <Stack gap="sm">
+        <Button
+          variant="light"
+          leftSection={
+            <IconSettings size={17} />
+          }
+          onClick={() => setOpened(true)}
+        >
+          Signal configuration
+        </Button>
+
+        <Text size="xs" c="dimmed">
+          {signal.signalOutput.lampCount}
+          {" lamps · "}
+          {signal.signalOutput.states.length}
+          {" aspects · "}
+          {signal.signalOutput.protocol === "dccext"
+            ? "DCC Extended"
+            : "DCC"}
+        </Text>
+
+        <Text size="xs" fw={700}>
+          Aspects
+        </Text>
+
+        <ScrollArea.Autosize
+          mah={260}
+          offsetScrollbars
+          scrollbarSize={8}
+        >
+          <SimpleGrid
+            cols={2}
+            spacing="xs"
+            verticalSpacing="xs"
+          >
+            {signal.signalOutput.states.map(
+              (state, index) => (
+                <Paper
+                  key={state.id}
+                  withBorder
+                  p={4}
+                  radius="sm"
                   style={{
-                    width: "50%",
+                    cursor: "pointer",
+                    borderColor:
+                      index === signal.currentStateIndex
+                        ? "var(--mantine-color-blue-5)"
+                        : undefined,
                   }}
-                  element={createSignalPreview(
-                    selectedElement,
-                    row.color
-                  )}
-                  label={
-                    row.label
-                  }
-                  width={40}
-                  height={40}
-                  translateX={-10}
                   onClick={() =>
-                    row.send(signal)
+                    testCurrentState(state)
                   }
-                />
-              </Box>
-
-              <NumberInput
-                style={{
-                  flex: 1,
-                }}
-                value={
-                  signal[
-                    row.valueKey
-                  ]
-                }
-                min={0}
-                max={255}
-                allowDecimal={
-                  false
-                }
-                allowNegative={
-                  false
-                }
-                onChange={value => {
-                  const numberValue =
-                    typeof value ===
-                    "number"
-                      ? value
-                      : Number(
-                          value
-                        );
-
-                  signal[
-                    row.valueKey
-                  ] =
-                    Number.isFinite(
-                      numberValue
-                    )
-                      ? Math.max(
-                          0,
-                          Math.min(
-                            255,
-                            Math.trunc(
-                              numberValue
-                            )
-                          )
-                        )
-                      : 0;
-
-                  onUpdateSelectedElement(
-                    signal
-                  );
-                }}
-              />
-
-              <Tooltip
-                label={`Bit calculator · ${row.label}`}
-              >
-                <ActionIcon
-                  variant="light"
-                  size="lg"
-                  onClick={() =>
-                    openCalculator(
-                      row
-                    )
-                  }
-                  aria-label={`Open bit calculator for ${row.label}`}
+                  title={`Test aspect: ${state.label}`}
                 >
-                  <IconBinary
-                    size={18}
-                  />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-          ))}
-      </Group>
+                  <Stack
+                    gap={2}
+                    align="center"
+                  >
+                    <Box
+                      w="100%"
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <ElementPreview
+                        element={previews[index]!}
+                        label=""
+                        width={54}
+                        height={42}
+                        translateX={-8}
+                        onClick={() =>
+                          testCurrentState(state)
+                        }
+                      />
+                    </Box>
 
-      <BitCalculatorDialog
-        opened={
-          calculatorTarget !==
-          null
-        }
-        initialValue={
-          calculatorValue
-        }
-        onClose={
-          closeCalculator
-        }
-        onApply={
-          applyCalculatorValue
-        }
+                    <Text
+                      size="xs"
+                      fw={
+                        index === signal.currentStateIndex
+                          ? 700
+                          : 500
+                      }
+                      ta="center"
+                      truncate
+                      w="100%"
+                    >
+                      {state.label}
+                    </Text>
+                  </Stack>
+                </Paper>
+              )
+            )}
+          </SimpleGrid>
+        </ScrollArea.Autosize>
+
+        {signal.signalOutput.states.length === 0 && (
+          <Text size="xs" c="dimmed">
+            No signal aspects configured.
+          </Text>
+        )}
+      </Stack>
+
+      <SignalOutputDialog
+        opened={opened}
+        value={dialogValue}
+        onClose={() => setOpened(false)}
+        onApply={apply}
+        onTestState={testState}
       />
     </>
   );

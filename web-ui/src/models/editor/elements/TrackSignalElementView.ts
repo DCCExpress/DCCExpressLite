@@ -25,33 +25,48 @@ import {
   noopFromJSON,
   noopMouseHandler,
 } from "../core/view/support/BaseElementViewSupport";
+
 import {
   drawTrackSectionInfo,
   getTrackStateColor,
   getTrackTravelDirectionArrow,
 } from "../core/view/support/TrackElementViewSupport";
+
 import {
   TrackSignalElement as CommonTrackSignalElement,
   SignalStates,
 } from "@domain/layout/elements/TrackSignalElement";
+
 import {
   ELEMENT_TYPES,
 } from "@domain/layout/elementTypes";
+
 import {
   drawTextWithRoundedBackground,
 } from "../../../graphics";
+
 import {
   generateId,
 } from "../../../helpers";
+
 import {
-  OUTPUT_COMMAND_MODE_OPTIONS,
-  sendBinaryOutput,
-} from "../../../services/layoutOutput";
+  wsApi,
+} from "../../../services/wsApi";
+
+import type {
+  SignalOutputState,
+} from "@domain/layout/signalOutput";
+
 import {
+  cloneSignalOutputConfiguration,
+} from "@domain/layout/signalOutput";
+
+import type {
   DrawOptions,
   ITrackSignalElement,
 } from "../types/EditorTypes";
-import {
+
+import type {
   IEditableProperty,
 } from "./PropertyDescriptor";
 
@@ -60,6 +75,7 @@ export { SignalStates };
 export class TrackSignalElementView
   extends CommonTrackSignalElement
   implements ITrackSignalElement {
+
   get stateColor(): string {
     return getTrackStateColor(this);
   }
@@ -75,12 +91,11 @@ export class TrackSignalElementView
     return getTrackTravelDirectionArrow(this);
   }
 
-
-  selected: boolean = false;
-  marked: boolean = false;
-  enabled: boolean = true;
-  alpha: number = 0.5;
-  debug: boolean = false;
+  selected = false;
+  marked = false;
+  enabled = true;
+  alpha = 0.5;
+  debug = false;
 
   get GridSizeX(): number {
     return getGridSizeX();
@@ -142,6 +157,14 @@ export class TrackSignalElementView
     return "black";
   }
 
+  type:
+    typeof ELEMENT_TYPES.TRACK_SIGNAL2 =
+      ELEMENT_TYPES.TRACK_SIGNAL2;
+
+  constructor(x: number, y: number) {
+    super(x, y);
+  }
+
   beginDraw(
     ctx: CanvasRenderingContext2D,
     options?: DrawOptions
@@ -193,7 +216,7 @@ export class TrackSignalElementView
     noopMouseHandler(ev);
   }
 
-  fromJSON(data: any): void {
+  fromJSON(data: unknown): void {
     noopFromJSON(data);
   }
 
@@ -213,42 +236,77 @@ export class TrackSignalElementView
     return getBaseHelp();
   }
 
+  get canRotate(): boolean {
+    return true;
+  }
 
-  type: typeof ELEMENT_TYPES.TRACK_SIGNAL2 =
-    ELEMENT_TYPES.TRACK_SIGNAL2;
-
-  constructor(x: number, y: number) {
-    super(x, y);
+  get hasProperties(): boolean {
+    return true;
   }
 
   mouseDown(_event: MouseEvent): void {
-    let index = this.lights.findIndex(
-      light => light.value === this.value
-    );
-
-    index++;
-
-    if (index >= this.max) {
-      index = 0;
+    if (this.stateCount <= 0) {
+      return;
     }
 
-    this.send(this.lights[index]!.value);
+    const nextIndex =
+      (this.currentStateIndex + 1) % this.stateCount;
+
+    const state = this.signalOutput.states[nextIndex];
+
+    if (state) {
+      this.sendState(state);
+    }
+  }
+
+  sendState(state: SignalOutputState): void {
+    if (this.signalOutput.protocol === "dccext") {
+      wsApi.writeDccExDirectCommand(
+        `<A ${this.signalOutput.address} ${state.aspect}>`
+      );
+
+      this.setCurrentStateById(state.id);
+      return;
+    }
+
+    state.dccOutputs
+      .slice(0, this.signalOutput.outputCount)
+      .forEach((direction, index) => {
+        wsApi.setBasicAccessory(
+          this.signalOutput.address + index,
+          direction === "G"
+        );
+      });
+
+    this.setCurrentStateById(state.id);
+  }
+
+  private sendNamedState(label: string): void {
+    const state = this.signalOutput.states.find(
+      item =>
+        item.label.trim().toLowerCase() ===
+        label.toLowerCase()
+    );
+
+    if (state) {
+      this.sendState(state);
+    }
   }
 
   sendGreen(): void {
-    this.send(this.valueGreen);
+    this.sendNamedState("Green");
   }
 
   sendRed(): void {
-    this.send(this.valueRed);
+    this.sendNamedState("Red");
   }
 
   sendYellow(): void {
-    this.send(this.valueYellow);
+    this.sendNamedState("Yellow");
   }
 
   sendWhite(): void {
-    this.send(this.valueWhite);
+    this.sendNamedState("White");
   }
 
   sendRedIfNotRed(): void {
@@ -275,15 +333,7 @@ export class TrackSignalElementView
     }
   }
 
-  get canRotate(): boolean {
-    return true;
-  }
-
-  get hasProperties(): boolean {
-    return true;
-  }
-
-  drawCircle(
+  private drawCircle(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
@@ -310,7 +360,7 @@ export class TrackSignalElementView
         ctx,
         this.posLeft,
         this.posBottom - 10,
-        "#" + this.address.toString()
+        "#" + this.signalOutput.address.toString()
       );
     }
 
@@ -319,9 +369,16 @@ export class TrackSignalElementView
     this.drawSelection(ctx);
   }
 
-  drawSignal(
-    ctx: CanvasRenderingContext2D
-  ): void {
+  /**
+   * Preserves the current Lite signal graphics:
+   * - black rounded signal head
+   * - white inner outline
+   * - horizontal support/stem
+   * - right-side post
+   *
+   * Only lamp count and lamp colors are now driven by signalOutput.
+   */
+  drawSignal(ctx: CanvasRenderingContext2D): void {
     this.beginDraw(ctx);
 
     ctx.translate(this.centerX, this.centerY);
@@ -334,11 +391,13 @@ export class TrackSignalElementView
     const diameter = 2 * radius;
     const height = diameter + 4;
 
-    let lampCount = this.aspect;
+    const configuredLampCount =
+      Math.max(1, this.signalOutput.lampCount);
 
-    if (this.dispalyAsSingleLamp) {
-      lampCount = 1;
-    }
+    const lampCount =
+      this.signalOutput.displayAsSingleLamp
+        ? 1
+        : configuredLampCount;
 
     const frameLampCount =
       lampCount < 2
@@ -390,25 +449,36 @@ export class TrackSignalElementView
 
     x += lampCount === 1 ? 3 : 1;
 
+    const state = this.currentState;
+
     if (lampCount === 1) {
+      const activeLamp =
+        state?.lamps.find(lamp => lamp.active);
+
       this.drawCircle(
         ctx,
         x,
         y,
         radius,
-        this.lights[this.signalState]!.color
+        activeLamp?.color ?? "gray"
       );
     } else {
-      for (let index = 0; index < lampCount; index++) {
+      for (
+        let index = 0;
+        index < configuredLampCount;
+        index++
+      ) {
+        const lamp = state?.lamps[index];
+
         this.drawCircle(
           ctx,
           x + index * diameter,
           y,
           radius,
           this.lightsAll
-            ? this.lights[index]!.color
-            : index === this.signalState
-              ? this.lights[this.signalState]!.color
+            ? (lamp?.color ?? "gray")
+            : lamp?.active
+              ? (lamp.color ?? "gray")
               : "gray"
         );
       }
@@ -418,93 +488,49 @@ export class TrackSignalElementView
   }
 
   drawAddress(_ctx: CanvasRenderingContext2D): void {
-    // Kept as a compatibility placeholder.
-  }
-
-  send(bits: number): void {
-    this.value = 0;
-    for (let index = 0; index < this.addressLength; index++) {
-      const value =
-        ((bits >> index) & 1) === 1;
-
-      sendBinaryOutput(
-        this.outputMode,
-        this.address + index,
-        value
-      );
-      this.setValue(this.address + index, value);
-    }
+    // Compatibility placeholder.
   }
 
   toJSON(): ITrackSignalElement {
     return {
       ...super.toJSON(),
-      type: ELEMENT_TYPES.TRACK_SIGNAL2,
-      address: this.address,
-      outputMode: this.outputMode,
-      length: this.length,
-      aspect: this.aspect,
-      addressLength: this.addressLength,
-      dispalyAsSingleLamp: this.dispalyAsSingleLamp,
-      valueGreen: this.valueGreen,
-      valueRed: this.valueRed,
-      valueYellow: this.valueYellow,
-      valueWhite: this.valueWhite,
-    };
+    } as ITrackSignalElement;
   }
 
   static fromJSON(
     data: ITrackSignalElement
   ): TrackSignalElementView {
-    const element = new TrackSignalElementView(
-      data.x,
-      data.y
-    );
+    const common =
+      CommonTrackSignalElement.fromJSON(data);
 
-    element.id = data.id;
-    element.name = data.name;
-    element.layerName = data.layerName;
-    element.rotation = data.rotation;
-    element.rotationStep = data.rotationStep;
-    element.bg = data.bg;
-    element.fg = data.fg;
-    element.length = data.length;
-    element.aspect = data.aspect ?? 2;
-    element.address = data.address ?? 0;
-    element.outputMode = data.outputMode === "vpin" ? "vpin" : "accessory";
-    element.addressLength = data.addressLength ?? 5;
-    element.dispalyAsSingleLamp =
-      data.dispalyAsSingleLamp ?? false;
-    element.valueGreen = data.valueGreen ?? 0;
-    element.valueRed = data.valueRed ?? 0;
-    element.valueYellow = data.valueYellow ?? 0;
-    element.valueWhite = data.valueWhite ?? 0;
+    const element =
+      new TrackSignalElementView(data.x, data.y);
+
+    element.id = common.id;
+    element.name = common.name;
+    element.layerName = common.layerName;
+    element.rotation = common.rotation;
+    element.rotationStep = common.rotationStep;
+    element.bg = common.bg;
+    element.fg = common.fg;
+    element.length = common.length;
+    element.address = common.address;
+    element.signalOutput =
+      cloneSignalOutputConfiguration(
+        common.signalOutput
+      );
+    element.currentStateIndex =
+      common.currentStateIndex;
 
     return element;
   }
 
   clone(): TrackSignalElementView {
-    const copy = new TrackSignalElementView(
-      this.x,
-      this.y
-    );
+    const copy =
+      TrackSignalElementView.fromJSON(this.toJSON());
 
     copy.id = generateId();
-    copy.rotation = this.rotation;
-    copy.rotationStep = this.rotationStep;
     copy.selected = this.selected;
-    copy.bg = this.bg;
-    copy.fg = this.fg;
-    copy.length = this.length;
-    copy.aspect = this.aspect;
-    copy.address = this.address;
-    copy.outputMode = this.outputMode;
-    copy.addressLength = this.addressLength;
-    copy.dispalyAsSingleLamp = this.dispalyAsSingleLamp;
-    copy.valueGreen = this.valueGreen;
-    copy.valueRed = this.valueRed;
-    copy.valueYellow = this.valueYellow;
-    copy.valueWhite = this.valueWhite;
 
     return copy;
   }
@@ -513,33 +539,8 @@ export class TrackSignalElementView
     return [
       ...getBaseEditableProperties(),
       {
-        label: "Output type",
-        key: "outputMode",
-        type: "select",
-        readonly: false,
-        options: OUTPUT_COMMAND_MODE_OPTIONS,
-      },
-      {
-        label: "Single",
-        key: "dispalyAsSingleLamp",
-        type: "checkbox",
-        readonly: false,
-      },
-      {
-        label: "Start accessory address / VPIN",
-        key: "address",
-        type: "number",
-        readonly: false,
-      },
-      {
-        label: "Length",
-        key: "addressLength",
-        type: "number",
-        readonly: false,
-      },
-      {
-        label: "Singnal",
-        key: "aspect",
+        label: "Signal",
+        key: "signalOutput",
         type: "signal2",
         readonly: true,
       },

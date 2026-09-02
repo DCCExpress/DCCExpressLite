@@ -128,10 +128,8 @@ type PickerItem = {
   preview: BaseElementView;
 };
 
-function createSignalPreview(aspect: 2 | 3 | 4): TrackSignalElementView {
-  const signal = new TrackSignalElementView(0, 0);
-  signal.aspect = aspect;
-  return signal;
+function createSignalPreview(): TrackSignalElementView {
+  return new TrackSignalElementView(0, 0);
 }
 
 const PICKER_ITEMS: PickerItem[] = [
@@ -145,9 +143,7 @@ const PICKER_ITEMS: PickerItem[] = [
   { type: ELEMENT_TYPES.TRACK_TURNOUT_DOUBLE, label: "Double turnout", preview: new TrackTurnoutDoubleElementView(0, 0) },
   { type: ELEMENT_TYPES.TRACK_SENSOR, label: "Sensor", preview: new TrackSensorElementView(0, 0) },
   { type: ELEMENT_TYPES.TRACK_BLOCK, label: "Block", preview: new BlockElementView(0, 0) },
-  { type: ELEMENT_TYPES.TRACK_SIGNAL2, label: "2-light signal", preview: createSignalPreview(2) },
-  { type: ELEMENT_TYPES.TRACK_SIGNAL3, label: "3-light signal", preview: createSignalPreview(3) },
-  { type: ELEMENT_TYPES.TRACK_SIGNAL4, label: "4-light signal", preview: createSignalPreview(4) },
+  { type: ELEMENT_TYPES.TRACK_SIGNAL2, label: "Signal", preview: createSignalPreview() },
   { type: ELEMENT_TYPES.BUTTON, label: "Output button", preview: new ButtonElementView(0, 0) },
   { type: ELEMENT_TYPES.BUTTON_ROUTE, label: "Route", preview: new RouteButtonElementView(0, 0) },
   { type: ELEMENT_TYPES.LABEL, label: "Label", preview: new LabelElementView(0, 0) },
@@ -383,7 +379,6 @@ function DccExInfoPanel({
             <Text size="xs" c="dimmed">Firmware and data percentages refer to their own partitions, not the whole flash chip.</Text>
           </Stack>
         </Card>
-
       </Stack>
     </ScrollArea>
   );
@@ -567,8 +562,6 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
       temperatureCriticalRef.current = true;
       setTemperatureAlertOpened(true);
     } else if (temperature < 80) {
-      // Hysteresis: closing the warning while the temperature still hovers
-      // around the threshold must not open it again on every telemetry frame.
       temperatureCriticalRef.current = false;
     }
   }, [dccExStatus?.chipTemperatureC]);
@@ -682,7 +675,12 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
 
   useEffect(() => wsClient.on("accessoryChanged", data => {
     for (const element of layout.getAllElements()) {
-      if (element instanceof TrackSignalElementView && element.outputMode === "accessory" && element.address <= data.address && element.lastAddress >= data.address) {
+      if (
+        element instanceof TrackSignalElementView &&
+        element.signalOutput.protocol === "dcc" &&
+        element.signalOutput.address <= data.address &&
+        element.lastAddress >= data.address
+      ) {
         element.setValue(data.address, data.active);
       } else if (element instanceof ButtonElementView && element.outputMode === "accessory" && element.address === data.address) {
         element.on = data.active === element.activeValue;
@@ -714,8 +712,6 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
       } else if (element instanceof TrackTurnoutDoubleElementView && element.outputMode === "vpin") {
         if (element.turnout1Address === data.vpin) element.turnout1Closed = data.active;
         if (element.turnout2Address === data.vpin) element.turnout2Closed = data.active;
-      } else if (element instanceof TrackSignalElementView && element.outputMode === "vpin" && element.address <= data.vpin && element.lastAddress >= data.vpin) {
-        element.setValue(data.vpin, data.active);
       } else if (element instanceof ButtonElementView && element.outputMode === "vpin" && element.address === data.vpin) {
         element.on = data.active === element.activeValue;
       }

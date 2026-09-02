@@ -1,4 +1,3 @@
-
 import {
   Box,
   Group,
@@ -21,10 +20,12 @@ export function TrackCanvasSignalAspectPopover({
   state,
   onClose,
 }: TrackCanvasSignalAspectPopoverProps) {
+  const signal = state.signal;
+
   return (
     <Popover
       opened={state.opened}
-      onChange={(opened) => {
+      onChange={opened => {
         if (!opened) {
           onClose();
         }
@@ -57,85 +58,47 @@ export function TrackCanvasSignalAspectPopover({
 
       <Popover.Dropdown
         p={4}
-        onPointerDown={(event) => {
+        onPointerDown={event => {
           event.stopPropagation();
         }}
-        onMouseDown={(event) => {
+        onMouseDown={event => {
           event.stopPropagation();
         }}
-        onClick={(event) => {
+        onClick={event => {
           event.stopPropagation();
         }}
       >
         <Stack gap="xs">
           <Group gap={4}>
-            <Box
-              className="signal-aspect-button"
-              onClick={() => {
-                onClose();
-                state.signal?.sendGreen();
-              }}
-            >
-              <ElementPreview
-                style={{ cursor: "pointer" }}
-                element={state.previews?.green!}
-                label="Green"
-                width={40}
-                height={40}
-                translateX={-10}
-              />
-            </Box>
+            {signal?.signalOutput.states.map(
+              (signalState, index) => {
+                const preview =
+                  state.previews?.[index];
 
-            <Box
-              className="signal-aspect-button"
-              onClick={() => {
-                onClose();
-                state.signal?.sendRed();
-              }}
-            >
-              <ElementPreview
-                element={state.previews?.red!}
-                label="Red"
-                width={40}
-                height={40}
-                translateX={-10}
-              />
-            </Box>
+                if (!preview) {
+                  return null;
+                }
 
-            {state.signal && state.signal.aspect > 2 && (
-              <Box
-                className="signal-aspect-button"
-                onClick={() => {
-                  onClose();
-                  state.signal?.sendYellow();
-                }}
-              >
-                <ElementPreview
-                  element={state.previews?.yellow!}
-                  label="Yellow"
-                  width={40}
-                  height={40}
-                  translateX={-10}
-                />
-              </Box>
-            )}
-
-            {state.signal && state.signal.aspect > 3 && (
-              <Box
-                className="signal-aspect-button"
-                onClick={() => {
-                  onClose();
-                  state.signal?.sendWhite();
-                }}
-              >
-                <ElementPreview
-                  element={state.previews?.white!}
-                  label="White"
-                  width={40}
-                  height={40}
-                  translateX={-10}
-                />
-              </Box>
+                return (
+                  <Box
+                    key={signalState.id}
+                    className="signal-aspect-button"
+                    onClick={() => {
+                      onClose();
+                      signal.sendState(signalState);
+                    }}
+                  >
+                    <ElementPreview
+                      style={{ cursor: "pointer" }}
+                      element={preview}
+                      label={signalState.label}
+                      width={40}
+                      height={40}
+                      translateX={-10}
+                    />
+                  </Box>
+                );
+              }
             )}
           </Group>
         </Stack>
