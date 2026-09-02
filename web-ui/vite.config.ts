@@ -6,21 +6,33 @@ import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
 const device = process.env.DCCEXPRESS_DEVICE_URL?.trim() || "http://dccex.local";
 
-export default defineConfig(({ mode, command }) => ({
-  base:
-    mode === "demo" && command === "build"
-      ? "/DCCExpressLite/demo/"
-      : "/",
+export default defineConfig(({ mode }) => ({
+  /*
+   * Demo builds use relative asset paths.
+   *
+   * This makes the exact same build work both here:
+   *   http://127.0.0.1:5500/site/demo/
+   *
+   * and here:
+   *   https://dccexpress.github.io/DCCExpressLite/demo/
+   *
+   * The normal embedded/live build keeps the root base.
+   */
+  base: mode === "demo" ? "./" : "/",
+
   plugins: [react()],
+
   resolve: {
     alias: {
       "@": resolve(root, "src"),
       "@domain": resolve(root, "src/domain")
     }
   },
+
   server: {
     host: "0.0.0.0",
     port: 5174,
+
     proxy: mode === "demo"
       ? {}
       : {
@@ -44,10 +56,12 @@ export default defineConfig(({ mode, command }) => ({
           }
         }
   },
+
   build: {
     outDir: "dist",
     emptyOutDir: true,
     target: "es2017",
+
     rollupOptions: {
       output: {
         entryFileNames: "assets/app-v2.js",

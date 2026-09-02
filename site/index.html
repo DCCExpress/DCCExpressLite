@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <meta
+    name="description"
+    content="DCCExpressLite – ESP32 alapú DCC command station, webes kezelőfelülettel."
+  >
+  <title>DCCExpressLite</title>
+  <link rel="stylesheet" href="./assets/site.css">
+</head>
+
+<body>
+  <div class="background-grid" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="./">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img">
+          <path d="M12 9h24v19a12 12 0 0 1-24 0V9Z"/>
+          <path d="M17 15h14M16 25h16M18 35l-5 6M30 35l5 6"/>
+          <circle cx="18" cy="20" r="2.2"/>
+          <circle cx="30" cy="20" r="2.2"/>
+        </svg>
+      </span>
+      <span>
+        <strong>DCCExpressLite</strong>
+        <small>Model railway command station</small>
+      </span>
+    </a>
+
+    <nav class="nav">
+      <a href="./installer/">Installer</a>
+      <a href="./demo/">Demo</a>
+      <a href="./docs/">Dokumentáció</a>
+      <a
+        href="https://github.com/DCCExpress/DCCExpressLite"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        GitHub
+      </a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">
+          <span class="status-dot"></span>
+          ESP32 · DCC-EX · Web UI
+        </div>
+
+        <h1>
+          Egy könnyű, modern
+          <span>DCC command station</span>
+          modellvasúthoz.
+        </h1>
+
+        <p class="lead">
+          A DCCExpressLite az ESP32 / EX-CSB1 hardvert, a DCC-EX alapokat és
+          egy saját webes kezelőfelületet fog össze egy egyszerűen használható
+          rendszerben.
+        </p>
+
+        <div class="hero-actions">
+          <a class="button primary" href="./installer/">
+            Firmware telepítése
+            <span aria-hidden="true">→</span>
+          </a>
+
+          <a
+            class="button secondary"
+            href="https://github.com/DCCExpress/DCCExpressLite"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Forráskód GitHubon
+          </a>
+        </div>
+
+        <div class="hero-meta">
+          <span>Webes telepítő</span>
+          <span>Mobilbarát vezérlés</span>
+          <span>Nyílt forráskód</span>
+        </div>
+      </div>
+
+      <div class="command-card" aria-label="DCCExpressLite command station preview">
+        <div class="command-card-top">
+          <div>
+            <span class="micro-label">COMMAND STATION</span>
+            <strong>DCCExpress Lite</strong>
+          </div>
+          <span class="online-pill">ONLINE</span>
+        </div>
+
+        <div class="track-display">
+          <div class="rail rail-a"></div>
+          <div class="rail rail-b"></div>
+          <div class="sleeper sleeper-1"></div>
+          <div class="sleeper sleeper-2"></div>
+          <div class="sleeper sleeper-3"></div>
+          <div class="sleeper sleeper-4"></div>
+          <div class="sleeper sleeper-5"></div>
+          <div class="signal">
+            <span class="signal-light red"></span>
+            <span class="signal-light amber"></span>
+            <span class="signal-light green active"></span>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div>
+            <span>TRACK</span>
+            <strong>ON</strong>
+          </div>
+          <div>
+            <span>PROTOCOL</span>
+            <strong>DCC</strong>
+          </div>
+          <div>
+            <span>CONTROL</span>
+            <strong>WEB</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <span class="eyebrow">DCCEXPRESSLITE</span>
+        <h2>Minden fontos funkció egy helyen.</h2>
+        <p>
+          A projekt célja, hogy a command station telepítése, konfigurálása és
+          napi használata ne különálló eszközökből álljon.
+        </p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card">
+          <span class="feature-icon">01</span>
+          <h3>Webes vezérlés</h3>
+          <p>
+            Mozdonyok, váltók, jelzők és a pálya kezelése közvetlenül
+            böngészőből, külön kliensprogram nélkül.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <span class="feature-icon">02</span>
+          <h3>ESP32 / EX-CSB1</h3>
+          <p>
+            Kis fogyasztású, önálló command station beépített Wi-Fi-vel és
+            LittleFS alapú webes felülettel.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <span class="feature-icon">03</span>
+          <h3>DCC kiegészítők</h3>
+          <p>
+            Váltók, Basic Accessory és DCC Extended jelzővezérlés egységes
+            felületről.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <span class="feature-icon">04</span>
+          <h3>Nyílt projekt</h3>
+          <p>
+            A firmware és a webes kezelőfelület fejlesztése nyilvánosan,
+            GitHubon követhető.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section access-section">
+      <div class="section-heading">
+        <span class="eyebrow">INDULÁS</span>
+        <h2>Próbáld ki vagy telepítsd.</h2>
+      </div>
+
+      <div class="access-grid">
+        <a class="access-card active-card" href="./installer/">
+          <div class="access-top">
+            <span class="access-badge ready">ELÉRHETŐ</span>
+            <span class="access-arrow">→</span>
+          </div>
+          <h3>Web Installer</h3>
+          <p>
+            DCCExpressLite firmware telepítése támogatott böngészőből,
+            közvetlenül USB-n keresztül.
+          </p>
+        </a>
+
+        <a class="access-card" href="./demo/">
+          <div class="access-top">
+            <span class="access-badge">ELŐKÉSZÍTÉS ALATT</span>
+            <span class="access-arrow">→</span>
+          </div>
+          <h3>Online Demo</h3>
+          <p>
+            A React kezelőfelület command station nélkül, böngészőben
+            kipróbálható változata.
+          </p>
+        </a>
+
+        <a class="access-card" href="./docs/">
+          <div class="access-top">
+            <span class="access-badge">ÉPÜL</span>
+            <span class="access-arrow">→</span>
+          </div>
+          <h3>Dokumentáció</h3>
+          <p>
+            Telepítés, hardver, DCC kiegészítők, konfiguráció és fejlesztői
+            dokumentáció.
+          </p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>
+      <strong>DCCExpressLite</strong>
+      <span>Open-source model railway control</span>
+    </div>
+
+    <div class="footer-links">
+      <a href="./installer/">Installer</a>
+      <a href="./docs/">Docs</a>
+      <a
+        href="https://github.com/DCCExpress/DCCExpressLite"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        GitHub
+      </a>
+    </div>
+  </footer>
+</body>
+</html>
