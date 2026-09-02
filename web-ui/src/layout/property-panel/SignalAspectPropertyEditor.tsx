@@ -154,6 +154,9 @@ export default function SignalAspectPropertyEditor({
         </Button>
 
         <Text size="xs" c="dimmed">
+          {"Address "}
+          {signal.signalOutput.address}
+          {" · "}
           {signal.signalOutput.lampCount}
           {" lamps · "}
           {signal.signalOutput.states.length}

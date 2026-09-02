@@ -33,6 +33,24 @@ type SignalLogicJsonlGroup = {
   group: SignalLogicDocumentDto["groups"][number];
 };
 
+type SignalLogicJsonlStamp = {
+  kind: "stamp";
+  savedAt: number;
+};
+
+function publishRuntimeState(
+  state: SignalLogicRuntimeStateDto
+): void {
+  window.dispatchEvent(
+    new CustomEvent(
+      "dcc-lite-signal-runtime-state",
+      {
+        detail: state,
+      }
+    )
+  );
+}
+
 function serializeSignalLogicJsonl(
   document: SignalLogicDocumentDto
 ): string {
@@ -55,6 +73,13 @@ function serializeSignalLogicJsonl(
     lines.push(JSON.stringify(row));
   }
 
+  const stamp: SignalLogicJsonlStamp = {
+    kind: "stamp",
+    savedAt: Date.now(),
+  };
+
+  lines.push(JSON.stringify(stamp));
+
   return `${lines.join("\n")}\n`;
 }
 
@@ -67,19 +92,22 @@ function parseSignalLogicJsonl(
   const groups:
     SignalLogicDocumentDto["groups"] = [];
 
-  for (const rawLine of content.split(/\r?\n/u)) {
+  for (
+    const rawLine of
+      content.split(/\r?\n/u)
+  ) {
     const line = rawLine.trim();
 
     if (!line) {
       continue;
     }
 
-    const row = JSON.parse(line) as {
-      kind?: unknown;
-      version?: unknown;
-      enabled?: unknown;
-      group?: unknown;
-    };
+    const row =
+      JSON.parse(line) as {
+        kind?: unknown;
+        enabled?: unknown;
+        group?: unknown;
+      };
 
     if (row.kind === "meta") {
       sawMeta = true;
@@ -87,7 +115,10 @@ function parseSignalLogicJsonl(
       continue;
     }
 
-    if (row.kind === "group" && row.group) {
+    if (
+      row.kind === "group" &&
+      row.group
+    ) {
       const normalized =
         normalizeSignalLogicDocument({
           version: 3,
@@ -96,7 +127,9 @@ function parseSignalLogicJsonl(
         });
 
       if (normalized.groups[0]) {
-        groups.push(normalized.groups[0]);
+        groups.push(
+          normalized.groups[0]
+        );
       }
     }
   }
@@ -134,7 +167,8 @@ async function readJsonl():
     );
   }
 
-  const content = await response.text();
+  const content =
+    await response.text();
 
   if (!content.trim()) {
     return {
@@ -144,14 +178,18 @@ async function readJsonl():
     };
   }
 
-  return parseSignalLogicJsonl(content);
+  return parseSignalLogicJsonl(
+    content
+  );
 }
 
 async function uploadJsonl(
   document: SignalLogicDocumentDto
 ): Promise<void> {
   const content =
-    serializeSignalLogicJsonl(document);
+    serializeSignalLogicJsonl(
+      document
+    );
 
   const form = new FormData();
 
@@ -160,7 +198,8 @@ async function uploadJsonl(
     new Blob(
       [content],
       {
-        type: "application/x-ndjson",
+        type:
+          "application/x-ndjson",
       }
     ),
     "signal-rules.jsonl"
@@ -182,23 +221,43 @@ async function uploadJsonl(
 }
 
 /**
- * One-time compatibility fallback.
- *
- * Old firmware stored one large /signal-rules.json document and exposed it
- * over WebSocket. If no JSONL file exists yet, load that document once,
- * immediately convert it to JSONL, then all later operations use streamed
- * HTTP file I/O.
+ * Kept for compatibility/manual diagnostics.
+ * Normal JSONL load/save no longer polls this every 1.5 seconds.
  */
+export async function
+getSignalLogicRuntimeStateWs():
+  Promise<SignalLogicRuntimeStateDto> {
+  const response =
+    await requestWsCommand(
+      "signalLogicCommand",
+      {
+        action: "state",
+      },
+      "signalLogicResponse",
+      "Signal logic state request failed."
+    );
+
+  const state =
+    response.state ?? {
+      running: false,
+      enabled: false,
+    };
+
+  publishRuntimeState(state);
+  return state;
+}
+
 async function loadLegacyAndMigrate():
   Promise<SignalLogicLoadResult> {
-  const response = await requestWsCommand(
-    "signalLogicCommand",
-    {
-      action: "load",
-    },
-    "signalLogicResponse",
-    "Signal logic command failed."
-  );
+  const response =
+    await requestWsCommand(
+      "signalLogicCommand",
+      {
+        action: "load",
+      },
+      "signalLogicResponse",
+      "Signal logic command failed."
+    );
 
   if (!response.document) {
     throw new Error(
@@ -213,50 +272,76 @@ async function loadLegacyAndMigrate():
 
   await uploadJsonl(document);
 
+  const state = {
+    enabled: document.enabled,
+    running: document.enabled,
+  };
+
+  publishRuntimeState(state);
+
   return {
     document,
-    issues: response.issues ?? [],
-    created: response.created ?? false,
-    state: response.state ?? {
-      running: document.enabled,
-      enabled: document.enabled,
-    },
+    issues:
+      response.issues ?? [],
+    created:
+      response.created ?? false,
+    state,
     message:
       "Legacy signal rules were migrated to JSONL.",
   };
 }
 
-export async function loadSignalLogicRulesWs():
+export async function
+loadSignalLogicRulesWs():
   Promise<SignalLogicLoadResult> {
-  const document = await readJsonl();
+  const document =
+    await readJsonl();
 
   if (!document) {
     return loadLegacyAndMigrate();
   }
 
+  const state = {
+    enabled: document.enabled,
+    running: document.enabled,
+  };
+
+  publishRuntimeState(state);
+
   return {
     document,
     issues: [],
     created: false,
-    state: {
-      running: document.enabled,
-      enabled: document.enabled,
-    },
+    state,
   };
 }
 
-export async function saveSignalLogicRulesWs(
+export async function
+saveSignalLogicRulesWs(
   document: SignalLogicDocumentDto
 ): Promise<SignalLogicLoadResult> {
   await uploadJsonl(document);
 
+  // Firmware watches JSONL every 500 ms. Give it one complete watch cycle.
+  await new Promise<void>(
+    resolve =>
+      window.setTimeout(
+        resolve,
+        650
+      )
+  );
+
+  const state = {
+    enabled: document.enabled,
+    running: document.enabled,
+  };
+
+  publishRuntimeState(state);
+
   return {
     document,
     issues: [],
     created: false,
-    state: {
-      running: document.enabled,
-      enabled: document.enabled,
-    },
+    state,
   };
 }

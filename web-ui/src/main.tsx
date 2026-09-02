@@ -33,6 +33,12 @@ import {
 import {
   installTurnoutAccessoryModes,
 } from "@/models/editor/turnout/installTurnoutAccessoryModes";
+import {
+  installSignalLogicStatusIndicator,
+} from "@/services/signalLogicStatusIndicator";
+import {
+  installFileViewerEnhancer,
+} from "@/services/fileViewerEnhancer";
 
 import App from "./App";
 import "./styles.css";
@@ -41,6 +47,8 @@ installTurnoutAccessoryModes();
 installOccupancySensorProperties();
 resetDemoStorageOnStartup();
 installDemoRuntime();
+installFileViewerEnhancer();
+installSignalLogicStatusIndicator();
 
 ReactDOM.createRoot(
   document.getElementById("root")!

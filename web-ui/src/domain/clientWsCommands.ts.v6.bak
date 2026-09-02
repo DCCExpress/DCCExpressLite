@@ -105,7 +105,6 @@ export type SetVpinCommandPayload = {
 export type SetSignalAspectCommandPayload = {
   address: number;
   aspect: number;
-  turnoutPhysicalValue?: boolean;
 };
 
 export type SetBlockCommandPayload = {

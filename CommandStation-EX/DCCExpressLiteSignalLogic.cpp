@@ -18,6 +18,7 @@ constexpr uint8_t MAX_CONDITIONS_PER_RULE = 6;
 constexpr uint8_t MAX_SENSOR_INPUTS = 32;
 constexpr uint8_t MAX_SIGNAL_STATES = 16;
 constexpr uint8_t MAX_SIGNAL_OUTPUTS = 16;
+
 constexpr uint32_t SENSOR_POLL_INTERVAL_MS = 100;
 constexpr uint32_t RULES_FILE_CHECK_INTERVAL_MS = 500;
 
@@ -26,6 +27,10 @@ struct SignalCondition
   uint16_t address = 0;
   bool sensor = false;
   bool vpin = false;
+
+  // This is the PHYSICAL value expected from the runtime reader.
+  // For turnout conditions JSONL stores logical Closed/Thrown. During load
+  // that logical state is translated through turnoutClosedValue from layout.
   bool expected = false;
 };
 
@@ -46,7 +51,6 @@ struct SignalRule
 struct SignalGroup
 {
   uint16_t signalAddress = 0;
-
   bool extended = false;
   bool vpin = false;
 
@@ -85,9 +89,11 @@ bool evaluationPending = false;
 
 uint32_t lastSensorPollAtMs = 0;
 uint32_t lastRulesFileCheckAtMs = 0;
+
 uint64_t observedRulesFingerprint = 0;
 size_t observedRulesSize = 0;
 bool observedRulesJsonl = false;
+bool observedRulesPresent = false;
 
 DCCExpressLiteSignalLogic::TurnoutStateReader readTurnout = nullptr;
 DCCExpressLiteSignalLogic::VpinStateReader readVpin = nullptr;
@@ -95,8 +101,6 @@ DCCExpressLiteSignalLogic::OutputWriter writeOutput = nullptr;
 
 uint64_t hashStateId(const char *value)
 {
-  // 64-bit FNV-1a. The web UI still stores the full stable state ID;
-  // firmware only needs a compact key while resolving rules at load time.
   constexpr uint64_t offsetBasis = 14695981039346656037ULL;
   constexpr uint64_t prime = 1099511628211ULL;
 
@@ -114,26 +118,55 @@ uint64_t hashStateId(const char *value)
   return hash;
 }
 
+bool equalsIgnoreCase(const char *a, const char *b)
+{
+  if (!a || !b)
+    return false;
+
+  while (*a && *b)
+  {
+    if (tolower(static_cast<unsigned char>(*a)) !=
+        tolower(static_cast<unsigned char>(*b)))
+      return false;
+
+    ++a;
+    ++b;
+  }
+
+  return *a == '\0' && *b == '\0';
+}
+
+bool safeFileExists(const char *path)
+{
+  return path && path[0] && LittleFS.exists(path);
+}
+
 uint64_t fingerprintFile(const char *path, size_t &sizeOut)
 {
   constexpr uint64_t offsetBasis = 14695981039346656037ULL;
   constexpr uint64_t prime = 1099511628211ULL;
 
+  sizeOut = 0;
+
+  // IMPORTANT: do not call open() for an optional file that is absent.
+  // ESP32 VFS logs missing read-only opens as [E][vfs_api.cpp:105].
+  if (!safeFileExists(path))
+    return 0;
+
   File file = LittleFS.open(path, "r");
   if (!file)
-  {
-    sizeOut = 0;
     return 0;
-  }
 
   sizeOut = file.size();
+
   uint64_t hash = offsetBasis;
   uint8_t buffer[128];
 
   while (file.available())
   {
     const size_t count = file.read(buffer, sizeof(buffer));
-    if (!count) break;
+    if (!count)
+      break;
 
     for (size_t i = 0; i < count; ++i)
     {
@@ -148,58 +181,62 @@ uint64_t fingerprintFile(const char *path, size_t &sizeOut)
 
 const char *activeRulesPath()
 {
-  return LittleFS.exists(RULES_PATH)
-    ? RULES_PATH
-    : LEGACY_RULES_PATH;
+  if (safeFileExists(RULES_PATH))
+    return RULES_PATH;
+
+  if (safeFileExists(LEGACY_RULES_PATH))
+    return LEGACY_RULES_PATH;
+
+  return nullptr;
 }
 
 void rememberRulesFingerprint()
 {
-  observedRulesJsonl = LittleFS.exists(RULES_PATH);
-  observedRulesFingerprint =
-    fingerprintFile(activeRulesPath(), observedRulesSize);
+  const char *path = activeRulesPath();
+
+  observedRulesPresent = path != nullptr;
+  observedRulesJsonl = path && strcmp(path, RULES_PATH) == 0;
+
+  if (path)
+    observedRulesFingerprint = fingerprintFile(path, observedRulesSize);
+  else
+  {
+    observedRulesFingerprint = 0;
+    observedRulesSize = 0;
+  }
+
   lastRulesFileCheckAtMs = millis();
 }
 
 bool rulesFileChanged()
 {
   const uint32_t now = millis();
+
   if (now - lastRulesFileCheckAtMs < RULES_FILE_CHECK_INTERVAL_MS)
     return false;
 
   lastRulesFileCheckAtMs = now;
 
-  const bool jsonlExists = LittleFS.exists(RULES_PATH);
+  const char *path = activeRulesPath();
+  const bool present = path != nullptr;
+  const bool jsonl = path && strcmp(path, RULES_PATH) == 0;
+
   size_t size = 0;
   const uint64_t fingerprint =
-    fingerprintFile(jsonlExists ? RULES_PATH : LEGACY_RULES_PATH, size);
+    path ? fingerprintFile(path, size) : 0;
 
-  if (jsonlExists == observedRulesJsonl &&
+  if (present == observedRulesPresent &&
+      jsonl == observedRulesJsonl &&
       size == observedRulesSize &&
       fingerprint == observedRulesFingerprint)
     return false;
 
-  observedRulesJsonl = jsonlExists;
+  observedRulesPresent = present;
+  observedRulesJsonl = jsonl;
   observedRulesSize = size;
   observedRulesFingerprint = fingerprint;
+
   return true;
-}
-
-bool equalsIgnoreCase(const char *a, const char *b)
-{
-  if (!a || !b) return false;
-
-  while (*a && *b)
-  {
-    if (tolower(static_cast<unsigned char>(*a)) !=
-        tolower(static_cast<unsigned char>(*b)))
-      return false;
-
-    ++a;
-    ++b;
-  }
-
-  return *a == '\0' && *b == '\0';
 }
 
 void resetConfiguration()
@@ -230,10 +267,10 @@ void registerSensorInput(uint16_t address)
       sensorInputCount >= MAX_SENSOR_INPUTS)
     return;
 
-  sensorInputs[sensorInputCount].address = address;
-  sensorInputs[sensorInputCount].simulatedState = -1;
-  sensorInputs[sensorInputCount].observedState = -2;
-  ++sensorInputCount;
+  SensorInput &input = sensorInputs[sensorInputCount++];
+  input.address = address;
+  input.simulatedState = -1;
+  input.observedState = -2;
 }
 
 int8_t readSensorState(uint16_t address)
@@ -266,8 +303,7 @@ bool isElementType(
   JsonObjectConst element,
   const char *expected)
 {
-  const char *type =
-    element["type"] | "";
+  const char *type = element["type"] | "";
 
   if (!strcmp(expected, "turnout"))
     return !strncmp(type, "trackturnout", 12);
@@ -288,20 +324,52 @@ JsonObjectConst findElementById(
   if (!id || !id[0])
     return JsonObjectConst();
 
-  for (
-    JsonObjectConst layer :
-    layout["layers"].as<JsonArrayConst>())
+  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
   {
-    for (
-      JsonObjectConst element :
-      layer["elements"].as<JsonArrayConst>())
+    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
     {
-      if (
-        !strcmp(element["id"] | "", id) &&
-        isElementType(element, expectedType))
-      {
+      if (!strcmp(element["id"] | "", id) &&
+          isElementType(element, expectedType))
         return element;
-      }
+    }
+  }
+
+  return JsonObjectConst();
+}
+
+int turnoutElementAddress(JsonObjectConst element)
+{
+  const int address = element["turnoutAddress"] | 0;
+
+  if (address > 0)
+    return address;
+
+  return element["turnout1Address"] | 0;
+}
+
+JsonObjectConst findTurnoutElement(
+  JsonDocument &layout,
+  const char *id,
+  int legacyAddress)
+{
+  JsonObjectConst byId =
+    findElementById(layout, id, "turnout");
+
+  if (!byId.isNull())
+    return byId;
+
+  if (legacyAddress <= 0)
+    return JsonObjectConst();
+
+  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
+  {
+    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
+    {
+      if (!isElementType(element, "turnout"))
+        continue;
+
+      if (turnoutElementAddress(element) == legacyAddress)
+        return element;
     }
   }
 
@@ -314,10 +382,7 @@ JsonObjectConst findSignalElement(
   int legacyAddress)
 {
   JsonObjectConst byId =
-    findElementById(
-      layout,
-      id,
-      "signal");
+    findElementById(layout, id, "signal");
 
   if (!byId.isNull())
     return byId;
@@ -325,13 +390,9 @@ JsonObjectConst findSignalElement(
   if (legacyAddress <= 0)
     return JsonObjectConst();
 
-  for (
-    JsonObjectConst layer :
-    layout["layers"].as<JsonArrayConst>())
+  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
   {
-    for (
-      JsonObjectConst element :
-      layer["elements"].as<JsonArrayConst>())
+    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
     {
       if (!isElementType(element, "signal"))
         continue;
@@ -356,47 +417,59 @@ int resolveElementAddress(
   int legacyAddress,
   const char *expectedType)
 {
+  if (!strcmp(expectedType, "turnout"))
+  {
+    JsonObjectConst element =
+      findTurnoutElement(layout, id, legacyAddress);
+
+    return element.isNull()
+      ? legacyAddress
+      : turnoutElementAddress(element);
+  }
+
   JsonObjectConst element =
-    findElementById(
-      layout,
-      id,
-      expectedType);
+    findElementById(layout, id, expectedType);
 
   if (!element.isNull())
-  {
-    if (!strcmp(expectedType, "turnout"))
-    {
-      const int turnoutAddress =
-        element["turnoutAddress"] | 0;
-
-      return turnoutAddress > 0
-        ? turnoutAddress
-        : static_cast<int>(
-            element["turnout1Address"] | 0);
-    }
-
-    return static_cast<int>(
-      element["address"] | 0);
-  }
+    return element["address"] | 0;
 
   return legacyAddress;
 }
 
 bool resolveElementUsesVpin(
   JsonDocument &layout,
-  const char *id,
-  const char *expectedType)
+  const char *id)
 {
   JsonObjectConst element =
-    findElementById(
-      layout,
-      id,
-      expectedType);
+    findElementById(layout, id, "turnout");
 
   return !element.isNull() &&
-    !strcmp(
-      element["outputMode"] | "accessory",
-      "vpin");
+    !strcmp(element["outputMode"] | "accessory", "vpin");
+}
+
+bool resolveTurnoutPhysicalExpected(
+  JsonDocument &layout,
+  const char *id,
+  int legacyAddress,
+  bool logicalClosed)
+{
+  JsonObjectConst element =
+    findTurnoutElement(layout, id, legacyAddress);
+
+  // TrackTurnoutElement:
+  //   isClosed = turnoutClosed === turnoutClosedValue
+  //
+  // Therefore:
+  //   logical Closed  -> physical turnoutClosedValue
+  //   logical Thrown  -> physical !turnoutClosedValue
+  const bool closedValue =
+    !element.isNull()
+      ? (element["turnoutClosedValue"] | false)
+      : false;
+
+  return logicalClosed
+    ? closedValue
+    : !closedValue;
 }
 
 int findStateIndexById(
@@ -406,19 +479,11 @@ int findStateIndexById(
   if (!stateId || !stateId[0])
     return -1;
 
-  const uint64_t wanted =
-    hashStateId(stateId);
+  const uint64_t wanted = hashStateId(stateId);
 
-  for (
-    uint8_t i = 0;
-    i < group.stateCount;
-    ++i)
-  {
-    if (
-      group.states[i].idHash ==
-      wanted)
+  for (uint8_t i = 0; i < group.stateCount; ++i)
+    if (group.states[i].idHash == wanted)
       return i;
-  }
 
   return -1;
 }
@@ -432,8 +497,7 @@ int findStateIndexByLabel(
     return -1;
 
   const JsonArrayConst states =
-    signalElement["signalOutput"]["states"]
-      .as<JsonArrayConst>();
+    signalElement["signalOutput"]["states"].as<JsonArrayConst>();
 
   uint8_t index = 0;
 
@@ -442,16 +506,12 @@ int findStateIndexByLabel(
     if (index >= group.stateCount)
       break;
 
-    if (
-      equalsIgnoreCase(
-        state["label"] | "",
-        label))
+    if (equalsIgnoreCase(state["label"] | "", label))
       return index;
 
     ++index;
   }
 
-  // Legacy fixed signal layout fallback.
   if (equalsIgnoreCase(label, "red"))
     return group.stateCount > 0 ? 0 : -1;
 
@@ -472,66 +532,43 @@ void loadLegacySignalDefinition(
   SignalGroup &group)
 {
   group.extended = false;
+  group.vpin = false;
 
   group.signalAddress =
-    static_cast<uint16_t>(
-      element["address"] | 0);
+    static_cast<uint16_t>(element["address"] | 0);
 
   group.outputCount =
     constrain(
-      static_cast<int>(
-        element["addressLength"] | 5),
+      static_cast<int>(element["addressLength"] | 5),
       1,
       MAX_SIGNAL_OUTPUTS);
 
   struct LegacyState
   {
     const char *id;
-    const char *label;
     uint32_t bits;
   };
 
   const LegacyState legacy[] = {
-    {
-      "legacy-red",
-      "red",
-      element["valueRed"] | 0U
-    },
-    {
-      "legacy-green",
-      "green",
-      element["valueGreen"] | 0U
-    },
-    {
-      "legacy-yellow",
-      "yellow",
-      element["valueYellow"] | 0U
-    },
-    {
-      "legacy-white",
-      "white",
-      element["valueWhite"] | 0U
-    },
+    {"legacy-red", element["valueRed"] | 0U},
+    {"legacy-green", element["valueGreen"] | 0U},
+    {"legacy-yellow", element["valueYellow"] | 0U},
+    {"legacy-white", element["valueWhite"] | 0U},
   };
 
   const int lampCount =
     constrain(
-      static_cast<int>(
-        element["aspect"] | 2),
+      static_cast<int>(element["aspect"] | 2),
       2,
       4);
 
   group.stateCount =
     static_cast<uint8_t>(lampCount);
 
-  for (
-    uint8_t i = 0;
-    i < group.stateCount;
-    ++i)
+  for (uint8_t i = 0; i < group.stateCount; ++i)
   {
     group.states[i].idHash =
-      hashStateId(
-        legacy[i].id);
+      hashStateId(legacy[i].id);
 
     group.states[i].dccBits =
       static_cast<uint16_t>(
@@ -544,13 +581,10 @@ void loadDynamicSignalDefinition(
   SignalGroup &group)
 {
   JsonObjectConst config =
-    element["signalOutput"]
-      .as<JsonObjectConst>();
+    element["signalOutput"].as<JsonObjectConst>();
 
   group.extended =
-    !strcmp(
-      config["protocol"] | "dcc",
-      "dccext");
+    !strcmp(config["protocol"] | "dcc", "dccext");
 
   group.vpin = false;
 
@@ -558,19 +592,16 @@ void loadDynamicSignalDefinition(
     config["address"] | 0;
 
   if (configuredAddress <= 0)
-    configuredAddress =
-      element["address"] | 0;
+    configuredAddress = element["address"] | 0;
 
   group.signalAddress =
-    static_cast<uint16_t>(
-      configuredAddress);
+    static_cast<uint16_t>(configuredAddress);
 
   group.outputCount =
     group.extended
       ? 1
       : constrain(
-          static_cast<int>(
-            config["outputCount"] | 1),
+          static_cast<int>(config["outputCount"] | 1),
           1,
           MAX_SIGNAL_OUTPUTS);
 
@@ -579,46 +610,33 @@ void loadDynamicSignalDefinition(
 
   for (JsonObjectConst state : states)
   {
-    if (
-      group.stateCount >=
-      MAX_SIGNAL_STATES)
+    if (group.stateCount >= MAX_SIGNAL_STATES)
       break;
 
     SignalState &target =
-      group.states[
-        group.stateCount];
+      group.states[group.stateCount];
 
     target.idHash =
-      hashStateId(
-        state["id"] | "");
+      hashStateId(state["id"] | "");
 
     target.extendedAspect =
       constrain(
-        static_cast<int>(
-          state["aspect"] | 0),
+        static_cast<int>(state["aspect"] | 0),
         0,
         255);
 
     uint16_t bits = 0;
     uint8_t outputIndex = 0;
 
-    for (
-      JsonVariantConst direction :
-      state["dccOutputs"]
-        .as<JsonArrayConst>())
+    for (JsonVariantConst direction :
+         state["dccOutputs"].as<JsonArrayConst>())
     {
-      if (
-        outputIndex >=
-        group.outputCount)
+      if (outputIndex >= group.outputCount)
         break;
 
-      const char *value =
-        direction | "R";
-
-      if (!strcmp(value, "G"))
-        bits |=
-          static_cast<uint16_t>(
-            1U << outputIndex);
+      if (!strcmp(direction | "R", "G"))
+        bits |= static_cast<uint16_t>(
+          1U << outputIndex);
 
       ++outputIndex;
     }
@@ -635,56 +653,15 @@ bool loadSignalDefinition(
   if (element.isNull())
     return false;
 
-  if (
-    element["signalOutput"]
-      .is<JsonObjectConst>())
-  {
-    loadDynamicSignalDefinition(
-      element,
-      group);
-  }
+  if (element["signalOutput"].is<JsonObjectConst>())
+    loadDynamicSignalDefinition(element, group);
   else
-  {
-    loadLegacySignalDefinition(
-      element,
-      group);
-  }
+    loadLegacySignalDefinition(element, group);
 
   return
     group.signalAddress > 0 &&
     group.stateCount > 0 &&
-    (
-      group.extended ||
-      group.outputCount > 0
-    );
-}
-
-uint8_t resolveRuleStateIndex(
-  JsonObjectConst jsonRule,
-  JsonObjectConst signalElement,
-  const SignalGroup &group)
-{
-  const int byId =
-    findStateIndexById(
-      group,
-      jsonRule["stateId"] | "");
-
-  if (byId >= 0)
-    return static_cast<uint8_t>(byId);
-
-  const char *legacy =
-    jsonRule["aspect"] | "";
-
-  const int byLabel =
-    findStateIndexByLabel(
-      signalElement,
-      group,
-      legacy);
-
-  if (byLabel >= 0)
-    return static_cast<uint8_t>(byLabel);
-
-  return group.defaultStateIndex;
+    (group.extended || group.outputCount > 0);
 }
 
 uint8_t resolveDefaultStateIndex(
@@ -700,44 +677,59 @@ uint8_t resolveDefaultStateIndex(
   if (byId >= 0)
     return static_cast<uint8_t>(byId);
 
-  const char *legacy =
-    jsonGroup["defaultAspect"] | "red";
+  const int byLabel =
+    findStateIndexByLabel(
+      signalElement,
+      group,
+      jsonGroup["defaultAspect"] | "red");
+
+  return byLabel >= 0
+    ? static_cast<uint8_t>(byLabel)
+    : 0;
+}
+
+uint8_t resolveRuleStateIndex(
+  JsonObjectConst jsonRule,
+  JsonObjectConst signalElement,
+  const SignalGroup &group)
+{
+  const int byId =
+    findStateIndexById(
+      group,
+      jsonRule["stateId"] | "");
+
+  if (byId >= 0)
+    return static_cast<uint8_t>(byId);
 
   const int byLabel =
     findStateIndexByLabel(
       signalElement,
       group,
-      legacy);
+      jsonRule["aspect"] | "");
 
-  if (byLabel >= 0)
-    return static_cast<uint8_t>(byLabel);
-
-  return 0;
+  return byLabel >= 0
+    ? static_cast<uint8_t>(byLabel)
+    : group.defaultStateIndex;
 }
 
 uint8_t evaluateGroup(
   const SignalGroup &group)
 {
-  for (
-    uint8_t ruleIndex = 0;
-    ruleIndex < group.ruleCount;
-    ++ruleIndex)
+  for (uint8_t ruleIndex = 0;
+       ruleIndex < group.ruleCount;
+       ++ruleIndex)
   {
     const SignalRule &rule =
       group.rules[ruleIndex];
 
     bool matches = true;
 
-    for (
-      uint8_t conditionIndex = 0;
-      conditionIndex <
-        rule.conditionCount;
-      ++conditionIndex)
+    for (uint8_t conditionIndex = 0;
+         conditionIndex < rule.conditionCount;
+         ++conditionIndex)
     {
-      if (
-        readCondition(
-          rule.conditions[
-            conditionIndex]))
+      if (readCondition(
+            rule.conditions[conditionIndex]))
         continue;
 
       matches = false;
@@ -753,79 +745,73 @@ uint8_t evaluateGroup(
 
 void evaluateAll()
 {
-  for (
-    uint8_t i = 0;
-    i < loadedGroupCount;
-    ++i)
+  for (uint8_t i = 0;
+       i < loadedGroupCount;
+       ++i)
   {
-    SignalGroup &group =
-      groups[i];
+    SignalGroup &group = groups[i];
 
-    if (
-      !group.signalAddress ||
-      !group.stateCount)
+    if (!group.signalAddress ||
+        !group.stateCount)
       continue;
 
     const uint8_t nextState =
       evaluateGroup(group);
 
-    if (
-      group.lastStateValid &&
-      group.lastStateIndex ==
-        nextState &&
-      !group.outputPending)
+    if (group.lastStateValid &&
+        group.lastStateIndex == nextState &&
+        !group.outputPending)
       continue;
 
-    if (
-      group.outputPending &&
-      group.desiredStateIndex ==
-        nextState)
+    if (group.outputPending &&
+        group.desiredStateIndex == nextState)
       continue;
 
-    group.desiredStateIndex =
-      nextState;
-
+    group.desiredStateIndex = nextState;
     group.outputIndex = 0;
     group.outputPending = true;
+
+    Serial.printf(
+      "Signal logic: signal #%u -> state index %u.\n",
+      group.signalAddress,
+      nextState);
   }
 }
 
 void processOneOutput()
 {
-  for (
-    uint8_t i = 0;
-    i < loadedGroupCount;
-    ++i)
+  for (uint8_t i = 0;
+       i < loadedGroupCount;
+       ++i)
   {
-    SignalGroup &group =
-      groups[i];
+    SignalGroup &group = groups[i];
 
     if (!group.outputPending)
       continue;
 
-    if (
-      group.desiredStateIndex >=
-      group.stateCount)
+    if (group.desiredStateIndex >=
+        group.stateCount)
     {
       group.outputPending = false;
       continue;
     }
 
     const SignalState &state =
-      group.states[
-        group.desiredStateIndex];
+      group.states[group.desiredStateIndex];
 
     if (group.extended)
     {
+      Serial.printf(
+        "Signal logic: <A %u %u>\n",
+        group.signalAddress,
+        state.extendedAspect);
+
       DCC::setExtendedAccessory(
-        static_cast<int16_t>(
-          group.signalAddress),
-        static_cast<int16_t>(
-          state.extendedAspect));
+        static_cast<int16_t>(group.signalAddress),
+        static_cast<int16_t>(state.extendedAspect));
 
       group.lastStateIndex =
         group.desiredStateIndex;
-
       group.lastStateValid = true;
       group.outputPending = false;
       return;
@@ -840,6 +826,11 @@ void processOneOutput()
     const bool active =
       ((state.dccBits >> bit) & 1U) != 0;
 
+    Serial.printf(
+      "Signal logic: <a %u %u>\n",
+      group.signalAddress + bit,
+      active ? 1 : 0);
+
     writeOutput(
       group.signalAddress + bit,
       active,
@@ -847,13 +838,11 @@ void processOneOutput()
 
     ++group.outputIndex;
 
-    if (
-      group.outputIndex >=
-      group.outputCount)
+    if (group.outputIndex >=
+        group.outputCount)
     {
       group.lastStateIndex =
         group.desiredStateIndex;
-
       group.lastStateValid = true;
       group.outputPending = false;
     }
@@ -866,17 +855,15 @@ void pollSensors()
 {
   const uint32_t now = millis();
 
-  if (
-    now - lastSensorPollAtMs <
-    SENSOR_POLL_INTERVAL_MS)
+  if (now - lastSensorPollAtMs <
+      SENSOR_POLL_INTERVAL_MS)
     return;
 
   lastSensorPollAtMs = now;
 
-  for (
-    uint8_t i = 0;
-    i < sensorInputCount;
-    ++i)
+  for (uint8_t i = 0;
+       i < sensorInputCount;
+       ++i)
   {
     SensorInput &input =
       sensorInputs[i];
@@ -884,9 +871,7 @@ void pollSensors()
     const int8_t state =
       readSensorState(input.address);
 
-    if (
-      state ==
-      input.observedState)
+    if (state == input.observedState)
       continue;
 
     input.observedState = state;
@@ -908,12 +893,22 @@ void parseRuleGroup(
       jsonGroup["signalAddress"] | 0);
 
   if (signalElement.isNull())
+  {
+    Serial.println(
+      F("Signal logic: skipped group, signal element not found."));
     return;
+  }
 
   SignalGroup candidate;
 
-  if (!loadSignalDefinition(signalElement, candidate))
+  if (!loadSignalDefinition(
+        signalElement,
+        candidate))
+  {
+    Serial.println(
+      F("Signal logic: skipped group, signal definition invalid."));
     return;
+  }
 
   candidate.defaultStateIndex =
     resolveDefaultStateIndex(
@@ -921,11 +916,11 @@ void parseRuleGroup(
       signalElement,
       candidate);
 
-  for (
-    JsonObjectConst jsonRule :
-    jsonGroup["rules"].as<JsonArrayConst>())
+  for (JsonObjectConst jsonRule :
+       jsonGroup["rules"].as<JsonArrayConst>())
   {
-    if (candidate.ruleCount >= MAX_RULES_PER_GROUP)
+    if (candidate.ruleCount >=
+        MAX_RULES_PER_GROUP)
       break;
 
     SignalRule rule;
@@ -938,11 +933,11 @@ void parseRuleGroup(
 
     bool valid = true;
 
-    for (
-      JsonObjectConst jsonCondition :
-      jsonRule["conditions"].as<JsonArrayConst>())
+    for (JsonObjectConst jsonCondition :
+         jsonRule["conditions"].as<JsonArrayConst>())
     {
-      if (rule.conditionCount >= MAX_CONDITIONS_PER_RULE)
+      if (rule.conditionCount >=
+          MAX_CONDITIONS_PER_RULE)
         break;
 
       SignalCondition condition;
@@ -953,12 +948,17 @@ void parseRuleGroup(
       condition.sensor =
         !strcmp(type, "sensor");
 
+      const char *turnoutId =
+        jsonCondition["turnoutId"] | "";
+
+      const int legacyTurnoutAddress =
+        jsonCondition["turnoutAddress"] | 0;
+
       condition.vpin =
         !condition.sensor &&
         resolveElementUsesVpin(
           layout,
-          jsonCondition["turnoutId"] | "",
-          "turnout");
+          turnoutId);
 
       const int address =
         condition.sensor
@@ -969,14 +969,15 @@ void parseRuleGroup(
               "tracksensor")
           : resolveElementAddress(
               layout,
-              jsonCondition["turnoutId"] | "",
-              jsonCondition["turnoutAddress"] | 0,
+              turnoutId,
+              legacyTurnoutAddress,
               "turnout");
 
       const int maxAddress =
         condition.vpin ? 32767 : 2048;
 
-      if (address < 1 || address > maxAddress)
+      if (address < 1 ||
+          address > maxAddress)
       {
         valid = false;
         break;
@@ -985,23 +986,46 @@ void parseRuleGroup(
       condition.address =
         static_cast<uint16_t>(address);
 
-      condition.expected =
-        condition.sensor
-          ? (jsonCondition["active"] | false)
-          : (jsonCondition["closed"] | false);
-
-      rule.conditions[rule.conditionCount++] =
-        condition;
-
       if (condition.sensor)
-        registerSensorInput(condition.address);
+      {
+        condition.expected =
+          jsonCondition["active"] | false;
+
+        registerSensorInput(
+          condition.address);
+      }
+      else
+      {
+        const bool logicalClosed =
+          jsonCondition["closed"] | false;
+
+        condition.expected =
+          resolveTurnoutPhysicalExpected(
+            layout,
+            turnoutId,
+            legacyTurnoutAddress,
+            logicalClosed);
+
+        Serial.printf(
+          "Signal logic: turnout #%u logical=%s physicalExpected=%u.\n",
+          condition.address,
+          logicalClosed ? "Closed" : "Thrown",
+          condition.expected ? 1 : 0);
+      }
+
+      rule.conditions[
+        rule.conditionCount++] =
+        condition;
     }
 
     if (valid)
-      candidate.rules[candidate.ruleCount++] = rule;
+      candidate.rules[
+        candidate.ruleCount++] =
+        rule;
   }
 
-  groups[loadedGroupCount++] = candidate;
+  groups[loadedGroupCount++] =
+    candidate;
 }
 
 void parseRules(
@@ -1013,9 +1037,8 @@ void parseRules(
       ? document["enabled"].as<bool>()
       : document["autostart"].as<bool>();
 
-  for (
-    JsonObjectConst jsonGroup :
-    document["groups"].as<JsonArrayConst>())
+  for (JsonObjectConst jsonGroup :
+       document["groups"].as<JsonArrayConst>())
   {
     parseRuleGroup(jsonGroup, layout);
 
@@ -1035,8 +1058,13 @@ bool parseJsonlRules(
     while (rulesFile.available())
     {
       const int next = rulesFile.peek();
-      if (next != '\r' && next != '\n' && next != ' ' && next != '\t')
+
+      if (next != '\r' &&
+          next != '\n' &&
+          next != ' ' &&
+          next != '\t')
         break;
+
       rulesFile.read();
     }
 
@@ -1044,6 +1072,7 @@ bool parseJsonlRules(
       break;
 
     JsonDocument row;
+
     const DeserializationError error =
       deserializeJson(row, rulesFile);
 
@@ -1055,11 +1084,14 @@ bool parseJsonlRules(
       return false;
     }
 
-    const char *kind = row["kind"] | "";
+    const char *kind =
+      row["kind"] | "";
 
     if (!strcmp(kind, "meta"))
     {
-      enabled = row["enabled"] | false;
+      enabled =
+        row["enabled"] | false;
+
       sawMeta = true;
       continue;
     }
@@ -1076,6 +1108,8 @@ bool parseJsonlRules(
       if (loadedGroupCount >= MAX_GROUPS)
         break;
     }
+
+    // Other kinds (for example "stamp") are deliberately ignored.
   }
 
   if (!sawMeta)
@@ -1086,7 +1120,9 @@ bool parseJsonlRules(
   }
 
   return true;
-}}
+}
+
+} // namespace
 
 void DCCExpressLiteSignalLogic::begin(
   TurnoutStateReader turnoutReader,
@@ -1097,10 +1133,11 @@ void DCCExpressLiteSignalLogic::begin(
   readVpin = vpinReader;
   writeOutput = outputWriter;
 
-  if (!LittleFS.exists(RULES_PATH) &&
-      !LittleFS.exists(LEGACY_RULES_PATH))
+  if (!safeFileExists(RULES_PATH) &&
+      !safeFileExists(LEGACY_RULES_PATH))
   {
-    File file = LittleFS.open(RULES_PATH, "w");
+    File file =
+      LittleFS.open(RULES_PATH, "w");
 
     if (file)
     {
@@ -1121,18 +1158,30 @@ bool DCCExpressLiteSignalLogic::reload()
   enabled = false;
   running = false;
 
-  File layoutFile = LittleFS.open(LAYOUT_PATH, "r");
-
-  if (!layoutFile)
+  if (!safeFileExists(LAYOUT_PATH))
   {
     Serial.println(
       F("Signal logic: layout file is unavailable."));
     return false;
   }
 
+  File layoutFile =
+    LittleFS.open(LAYOUT_PATH, "r");
+
+  if (!layoutFile)
+  {
+    Serial.println(
+      F("Signal logic: layout file could not be opened."));
+    return false;
+  }
+
   JsonDocument layoutDocument;
+
   const DeserializationError layoutError =
-    deserializeJson(layoutDocument, layoutFile);
+    deserializeJson(
+      layoutDocument,
+      layoutFile);
+
   layoutFile.close();
 
   if (layoutError)
@@ -1144,35 +1193,50 @@ bool DCCExpressLiteSignalLogic::reload()
   }
 
   bool loaded = false;
+  bool usingJsonl = false;
 
-  if (LittleFS.exists(RULES_PATH))
+  if (safeFileExists(RULES_PATH))
   {
-    File rulesFile = LittleFS.open(RULES_PATH, "r");
+    usingJsonl = true;
+
+    File rulesFile =
+      LittleFS.open(RULES_PATH, "r");
 
     if (!rulesFile)
     {
       Serial.println(
-        F("Signal logic: JSONL rules file is unavailable."));
+        F("Signal logic: JSONL rules file could not be opened."));
       return false;
     }
 
-    loaded = parseJsonlRules(rulesFile, layoutDocument);
+    loaded =
+      parseJsonlRules(
+        rulesFile,
+        layoutDocument);
+
     rulesFile.close();
   }
-  else
+  else if (safeFileExists(LEGACY_RULES_PATH))
   {
-    File rulesFile = LittleFS.open(LEGACY_RULES_PATH, "r");
+    File rulesFile =
+      LittleFS.open(
+        LEGACY_RULES_PATH,
+        "r");
 
     if (!rulesFile)
     {
       Serial.println(
-        F("Signal logic: legacy rules file is unavailable."));
+        F("Signal logic: legacy rules file could not be opened."));
       return false;
     }
 
     JsonDocument rulesDocument;
+
     const DeserializationError rulesError =
-      deserializeJson(rulesDocument, rulesFile);
+      deserializeJson(
+        rulesDocument,
+        rulesFile);
+
     rulesFile.close();
 
     if (rulesError)
@@ -1183,8 +1247,18 @@ bool DCCExpressLiteSignalLogic::reload()
       return false;
     }
 
-    parseRules(rulesDocument, layoutDocument);
+    parseRules(
+      rulesDocument,
+      layoutDocument);
+
     loaded = true;
+  }
+  else
+  {
+    Serial.println(
+      F("Signal logic: no rules file exists."));
+    rememberRulesFingerprint();
+    return false;
   }
 
   if (!loaded)
@@ -1201,7 +1275,7 @@ bool DCCExpressLiteSignalLogic::reload()
     running ? "enabled" : "disabled",
     loadedGroupCount,
     sensorInputCount,
-    LittleFS.exists(RULES_PATH) ? "jsonl" : "legacy-json");
+    usingJsonl ? "jsonl" : "legacy-json");
 
   return true;
 }
@@ -1209,9 +1283,7 @@ bool DCCExpressLiteSignalLogic::reload()
 void DCCExpressLiteSignalLogic::loop()
 {
   if (rulesFileChanged())
-  {
     reload();
-  }
 
   if (!running)
     return;
@@ -1235,14 +1307,10 @@ void DCCExpressLiteSignalLogic::setEnabled(
 
   if (!running)
   {
-    for (
-      uint8_t i = 0;
-      i < loadedGroupCount;
-      ++i)
-    {
-      groups[i].outputPending =
-        false;
-    }
+    for (uint8_t i = 0;
+         i < loadedGroupCount;
+         ++i)
+      groups[i].outputPending = false;
 
     return;
   }
@@ -1266,11 +1334,18 @@ uint8_t DCCExpressLiteSignalLogic::groupCount()
 }
 
 void DCCExpressLiteSignalLogic::notifyTurnout(
-  uint16_t,
-  bool)
+  uint16_t address,
+  bool physicalValue)
 {
-  if (running)
-    evaluationPending = true;
+  if (!running)
+    return;
+
+  Serial.printf(
+    "Signal logic: turnout #%u runtime physical=%u -> evaluate.\n",
+    address,
+    physicalValue ? 1 : 0);
+
+  evaluationPending = true;
 }
 
 void DCCExpressLiteSignalLogic::notifySensor(
@@ -1292,16 +1367,12 @@ void DCCExpressLiteSignalLogic::notifySensor(
 
 void DCCExpressLiteSignalLogic::forceEvaluate()
 {
-  for (
-    uint8_t i = 0;
-    i < loadedGroupCount;
-    ++i)
+  for (uint8_t i = 0;
+       i < loadedGroupCount;
+       ++i)
   {
-    groups[i].lastStateValid =
-      false;
-
-    groups[i].outputPending =
-      false;
+    groups[i].lastStateValid = false;
+    groups[i].outputPending = false;
   }
 
   if (running)
