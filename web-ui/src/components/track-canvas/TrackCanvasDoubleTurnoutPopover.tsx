@@ -1,4 +1,3 @@
-
 import {
   Box,
   Group,
@@ -8,7 +7,12 @@ import {
 
 import ElementPreview from "../../models/editor/rendering/ElementPreviewRenderer";
 import TrackTurnoutDoubleElementView from "../../models/editor/elements/TrackTurnoutDoubleElementView";
-import { wsApi } from "../../services/wsApi";
+import {
+  getDoubleTurnoutAspect,
+} from "../../models/editor/turnout/turnoutAccessoryHelpers";
+import {
+  sendTurnoutOutput,
+} from "../../services/layoutOutput";
 
 import type {
   DoubleTurnoutPopoverState,
@@ -21,26 +25,10 @@ type DoubleTurnoutPosition = {
 };
 
 const DOUBLE_TURNOUT_POSITIONS: DoubleTurnoutPosition[] = [
-  {
-    label: "O-O",
-    firstClosed: false,
-    secondClosed: false,
-  },
-  {
-    label: "O-C",
-    firstClosed: false,
-    secondClosed: true,
-  },
-  {
-    label: "C-O",
-    firstClosed: true,
-    secondClosed: false,
-  },
-  {
-    label: "C-C",
-    firstClosed: true,
-    secondClosed: true,
-  },
+  { label: "O-O", firstClosed: false, secondClosed: false },
+  { label: "O-C", firstClosed: false, secondClosed: true },
+  { label: "C-O", firstClosed: true, secondClosed: false },
+  { label: "C-C", firstClosed: true, secondClosed: true },
 ];
 
 export type TrackCanvasDoubleTurnoutPopoverProps = {
@@ -52,9 +40,7 @@ function getPhysicalValueForLogicalState(
   closedValue: boolean,
   logicalClosed: boolean
 ): boolean {
-  return logicalClosed
-    ? closedValue
-    : !closedValue;
+  return logicalClosed ? closedValue : !closedValue;
 }
 
 function createDoubleTurnoutPreview(
@@ -62,23 +48,30 @@ function createDoubleTurnoutPreview(
   firstClosed: boolean,
   secondClosed: boolean
 ): TrackTurnoutDoubleElementView {
-  const turnout = new TrackTurnoutDoubleElementView(0, 0);
+  const turnout =
+    new TrackTurnoutDoubleElementView(0, 0);
 
   turnout.rotation = selectedElement.rotation;
-  turnout.turnout1Address = selectedElement.turnout1Address;
-  turnout.turnout2Address = selectedElement.turnout2Address;
-  turnout.turnout1ClosedValue = selectedElement.turnout1ClosedValue;
-  turnout.turnout2ClosedValue = selectedElement.turnout2ClosedValue;
+  turnout.turnout1Address =
+    selectedElement.turnout1Address;
+  turnout.turnout2Address =
+    selectedElement.turnout2Address;
+  turnout.turnout1ClosedValue =
+    selectedElement.turnout1ClosedValue;
+  turnout.turnout2ClosedValue =
+    selectedElement.turnout2ClosedValue;
 
-  turnout.turnout1Closed = getPhysicalValueForLogicalState(
-    turnout.turnout1ClosedValue,
-    firstClosed
-  );
+  turnout.turnout1Closed =
+    getPhysicalValueForLogicalState(
+      turnout.turnout1ClosedValue,
+      firstClosed
+    );
 
-  turnout.turnout2Closed = getPhysicalValueForLogicalState(
-    turnout.turnout2ClosedValue,
-    secondClosed
-  );
+  turnout.turnout2Closed =
+    getPhysicalValueForLogicalState(
+      turnout.turnout2ClosedValue,
+      secondClosed
+    );
 
   return turnout;
 }
@@ -87,20 +80,45 @@ function setDoubleTurnoutPosition(
   turnout: TrackTurnoutDoubleElementView,
   position: DoubleTurnoutPosition
 ): void {
-  wsApi.setTurnout(
-    turnout.turnout1Address,
+  const firstPhysical =
     getPhysicalValueForLogicalState(
       turnout.turnout1ClosedValue,
       position.firstClosed
-    )
-  );
+    );
 
-  wsApi.setTurnout(
-    turnout.turnout2Address,
+  const secondPhysical =
     getPhysicalValueForLogicalState(
       turnout.turnout2ClosedValue,
       position.secondClosed
-    )
+    );
+
+  turnout.turnout1Closed = firstPhysical;
+  turnout.turnout2Closed = secondPhysical;
+
+  sendTurnoutOutput(
+    String((turnout as any).outputMode),
+    turnout.turnout1Address,
+    firstPhysical,
+    {
+      closedValue: turnout.turnout1ClosedValue,
+      closedAspect:
+        getDoubleTurnoutAspect(turnout, 1, true),
+      openedAspect:
+        getDoubleTurnoutAspect(turnout, 1, false),
+    }
+  );
+
+  sendTurnoutOutput(
+    String((turnout as any).outputMode),
+    turnout.turnout2Address,
+    secondPhysical,
+    {
+      closedValue: turnout.turnout2ClosedValue,
+      closedAspect:
+        getDoubleTurnoutAspect(turnout, 2, true),
+      openedAspect:
+        getDoubleTurnoutAspect(turnout, 2, false),
+    }
   );
 }
 
@@ -113,7 +131,7 @@ export function TrackCanvasDoubleTurnoutPopover({
   return (
     <Popover
       opened={state.opened}
-      onChange={(opened) => {
+      onChange={opened => {
         if (!opened) {
           onClose();
         }
@@ -146,29 +164,27 @@ export function TrackCanvasDoubleTurnoutPopover({
 
       <Popover.Dropdown
         p={4}
-        onPointerDown={(event) => {
+        onPointerDown={event => {
           event.stopPropagation();
         }}
-        onMouseDown={(event) => {
+        onMouseDown={event => {
           event.stopPropagation();
         }}
-        onClick={(event) => {
+        onClick={event => {
           event.stopPropagation();
         }}
       >
         <Stack gap="xs">
           <Group gap={4}>
-            {turnout && DOUBLE_TURNOUT_POSITIONS.map(position => {
-              const currentTurnout = turnout;
-
-              return (
+            {turnout &&
+              DOUBLE_TURNOUT_POSITIONS.map(position => (
                 <Box
                   key={position.label}
                   className="signal-aspect-button"
                   onClick={() => {
                     onClose();
                     setDoubleTurnoutPosition(
-                      currentTurnout,
+                      turnout,
                       position
                     );
                   }}
@@ -176,18 +192,16 @@ export function TrackCanvasDoubleTurnoutPopover({
                   <ElementPreview
                     style={{ cursor: "pointer" }}
                     element={createDoubleTurnoutPreview(
-                      currentTurnout,
+                      turnout,
                       position.firstClosed,
                       position.secondClosed
                     )}
                     label={position.label}
                     width={40}
                     height={40}
-                    
                   />
                 </Box>
-              );
-            })}
+              ))}
           </Group>
         </Stack>
       </Popover.Dropdown>

@@ -5,9 +5,13 @@ import {
   drawTextWithRoundedBackground,
 } from "../../../../../graphics";
 import {
-  OUTPUT_COMMAND_MODE_OPTIONS,
+  TURNOUT_OUTPUT_MODE_OPTIONS,
   sendTurnoutOutput,
 } from "../../../../../services/layoutOutput";
+import {
+  getTurnoutClosedAspect,
+  getTurnoutOpenedAspect,
+} from "../../../turnout/turnoutAccessoryHelpers";
 import type {
   DrawOptions,
 } from "../../../types/EditorTypes";
@@ -70,12 +74,18 @@ export function drawTurnoutElement(
 export function toggleTurnout(
   element: CommonTrackTurnoutElement
 ): void {
-  const nextClosed = !element.turnoutClosed;
-  element.turnoutClosed = nextClosed;
+  const nextPhysicalValue = !element.turnoutClosed;
+  element.turnoutClosed = nextPhysicalValue;
+
   sendTurnoutOutput(
-    element.outputMode,
+    String((element as any).outputMode),
     element.turnoutAddress,
-    nextClosed
+    nextPhysicalValue,
+    {
+      closedValue: element.turnoutClosedValue,
+      closedAspect: getTurnoutClosedAspect(element),
+      openedAspect: getTurnoutOpenedAspect(element),
+    }
   );
 }
 
@@ -96,17 +106,19 @@ export function getTurnoutEditableProperties(
       key: "outputMode",
       type: "select",
       readonly: false,
-      options: OUTPUT_COMMAND_MODE_OPTIONS,
+      options: TURNOUT_OUTPUT_MODE_OPTIONS,
     },
     {
-      label: "Accessory address / VPIN",
+      label: "Accessory address",
       key: "turnoutAddress",
       type: "number",
       readonly: false,
+      min: 1,
+      max: 2048,
       validate: () => true,
     },
     {
-      label: "Closed Value",
+      label: "Turnout positions",
       key: "turnoutClosedValue",
       type: "bittoggle",
       readonly: false,

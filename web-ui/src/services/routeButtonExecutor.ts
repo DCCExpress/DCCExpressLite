@@ -1,4 +1,3 @@
-
 import {
   isTurnoutElement,
   type LayoutView,
@@ -7,6 +6,11 @@ import {
 import type {
   RouteButtonElementView,
 } from "../models/editor/elements/RouteButtonElementView";
+
+import {
+  getTurnoutClosedAspect,
+  getTurnoutOpenedAspect,
+} from "../models/editor/turnout/turnoutAccessoryHelpers";
 
 import {
   sleep,
@@ -56,7 +60,8 @@ export async function executeLegacyRouteButton({
   try {
     for (const routeTurnout of routeButton.routeTurnouts) {
       const turnout = elements.find(
-        element => element.id === routeTurnout.turnoutId
+        element =>
+          element.id === routeTurnout.turnoutId
       );
 
       if (!isTurnoutElement(turnout)) {
@@ -64,15 +69,21 @@ export async function executeLegacyRouteButton({
       }
 
       /**
-       * Legacy RouteButton stores physical command-center state.
-       * Keep this unchanged here. Logical C/T display is handled only
-       * by the property-panel UI using turnoutClosedValue.
+       * Legacy RouteButton stores the physical turnout state.
+       * Keep that representation, then map it to either R/G or
+       * Extended Accessory aspect at the output boundary.
        */
       turnout.turnoutClosed = routeTurnout.closed;
+
       sendTurnoutOutput(
-        turnout.outputMode,
+        String((turnout as any).outputMode),
         turnout.turnoutAddress,
-        routeTurnout.closed
+        routeTurnout.closed,
+        {
+          closedValue: turnout.turnoutClosedValue,
+          closedAspect: getTurnoutClosedAspect(turnout),
+          openedAspect: getTurnoutOpenedAspect(turnout),
+        }
       );
 
       await sleep(1000);

@@ -30,10 +30,14 @@ import {
 import {
   installOccupancySensorProperties,
 } from "@/models/editor/occupancy/installOccupancySensorProperties";
+import {
+  installTurnoutAccessoryModes,
+} from "@/models/editor/turnout/installTurnoutAccessoryModes";
 
 import App from "./App";
 import "./styles.css";
 
+installTurnoutAccessoryModes();
 installOccupancySensorProperties();
 resetDemoStorageOnStartup();
 installDemoRuntime();
