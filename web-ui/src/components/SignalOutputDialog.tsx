@@ -40,7 +40,7 @@ import type {
   SignalOutputConfiguration,
   SignalOutputProtocol,
   SignalOutputState,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 import {
   cloneSignalOutputConfiguration,
@@ -48,7 +48,7 @@ import {
   newSignalOutputStateId,
   resizeDccOutputs,
   resizeSignalLamps,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 type Props = {
   opened: boolean;

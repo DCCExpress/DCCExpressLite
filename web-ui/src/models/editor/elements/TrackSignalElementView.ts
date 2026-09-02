@@ -55,11 +55,11 @@ import {
 
 import type {
   SignalOutputState,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 import {
   cloneSignalOutputConfiguration,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 import type {
   DrawOptions,
@@ -216,7 +216,7 @@ export class TrackSignalElementView
     noopMouseHandler(ev);
   }
 
-  fromJSON(data: unknown): void {
+  fromJSON(data: ITrackSignalElement): void {
     noopFromJSON(data);
   }
 

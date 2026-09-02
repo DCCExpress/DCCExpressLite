@@ -23,11 +23,11 @@ import SignalOutputDialog from "@/components/SignalOutputDialog";
 import type {
   SignalOutputConfiguration,
   SignalOutputState,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 import {
   cloneSignalOutputConfiguration,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 import type {
   BaseElementView,

@@ -4,7 +4,7 @@ import {
 
 import {
   cloneSignalOutputConfiguration,
-} from "@domain/layout/signalOutput";
+} from "@/domain/layout/signalOutput";
 
 export type SignalAspectPreviews =
   TrackSignalElementView[];
