@@ -8,8 +8,11 @@ import "@/i18n";
 import { CommandCenterProvider } from "@/context/CommandCenterContext";
 import { EditorSettingsProvider } from "@/context/EditorSettingsContext";
 import { GamepadProvider } from "@/context/GamepadContext";
+import { installDemoRuntime } from "@/demo/demoBackend";
 import App from "./App";
 import "./styles.css";
+
+installDemoRuntime();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

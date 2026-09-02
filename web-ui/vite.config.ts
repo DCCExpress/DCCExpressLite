@@ -6,8 +6,11 @@ import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
 const device = process.env.DCCEXPRESS_DEVICE_URL?.trim() || "http://dccex.local";
 
-export default defineConfig({
-  base: "/",
+export default defineConfig(({ mode, command }) => ({
+  base:
+    mode === "demo" && command === "build"
+      ? "/DCCExpressLite/demo/"
+      : "/",
   plugins: [react()],
   resolve: {
     alias: {
@@ -18,26 +21,28 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5174,
-    proxy: {
-      "/api": { target: device, changeOrigin: true },
+    proxy: mode === "demo"
+      ? {}
+      : {
+          "/api": { target: device, changeOrigin: true },
 
-      // User images always come from the ESP32 in dev mode.
-      // Do NOT rewrite /images -> / because the firmware stores them
-      // in LittleFS under /images/.
-      "/images": { target: device, changeOrigin: true },
+          // User images always come from the ESP32 in dev mode.
+          // Do NOT rewrite /images -> / because the firmware stores them
+          // in LittleFS under /images/.
+          "/images": { target: device, changeOrigin: true },
 
-      // Legacy filesystem endpoints currently used by the Lite firmware.
-      "/upload": { target: device, changeOrigin: true },
-      "/delete": { target: device, changeOrigin: true },
-      "/list": { target: device, changeOrigin: true },
-      "/fsinfo": { target: device, changeOrigin: true },
+          // Legacy filesystem endpoints currently used by the Lite firmware.
+          "/upload": { target: device, changeOrigin: true },
+          "/delete": { target: device, changeOrigin: true },
+          "/list": { target: device, changeOrigin: true },
+          "/fsinfo": { target: device, changeOrigin: true },
 
-      "/ws": {
-        target: device.replace(/^http/, "ws"),
-        ws: true,
-        changeOrigin: true
-      }
-    }
+          "/ws": {
+            target: device.replace(/^http/, "ws"),
+            ws: true,
+            changeOrigin: true
+          }
+        }
   },
   build: {
     outDir: "dist",
@@ -54,4 +59,4 @@ export default defineConfig({
       }
     }
   }
-});
+}));
