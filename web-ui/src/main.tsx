@@ -7,9 +7,11 @@ import {
 import {
   Notifications,
 } from "@mantine/notifications";
+
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "@/i18n";
+
 import {
   CommandCenterProvider,
 } from "@/context/CommandCenterContext";
@@ -25,9 +27,14 @@ import {
 import {
   resetDemoStorageOnStartup,
 } from "@/demo/demoReset";
+import {
+  installOccupancySensorProperties,
+} from "@/models/editor/occupancy/installOccupancySensorProperties";
+
 import App from "./App";
 import "./styles.css";
 
+installOccupancySensorProperties();
 resetDemoStorageOnStartup();
 installDemoRuntime();
 
@@ -38,6 +45,7 @@ ReactDOM.createRoot(
     <ColorSchemeScript
       defaultColorScheme="dark"
     />
+
     <MantineProvider
       defaultColorScheme="dark"
     >
