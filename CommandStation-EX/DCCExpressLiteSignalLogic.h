@@ -22,7 +22,7 @@ public:
   static bool isRunning();
   static uint8_t groupCount();
 
-  static void notifyTurnout(uint16_t address, bool closed);
+  static void notifyTurnout(uint16_t address, bool physicalValue);
   static void notifySensor(uint16_t address, bool active);
   static void forceEvaluate();
 };
