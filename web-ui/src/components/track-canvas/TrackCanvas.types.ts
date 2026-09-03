@@ -8,6 +8,10 @@ import type {
 } from "@domain/types";
 
 import type {
+  LayoutElementId,
+} from "@domain/layout/layoutDto";
+
+import type {
   BaseElementView,
 } from "../../models/editor/core/BaseElementView";
 
@@ -65,13 +69,13 @@ export type PanState = {
 
 export type DragState = {
   isDraggingElement: boolean;
-  elementId: string | null;
+  elementId: LayoutElementId | null;
   startMouseGridX: number;
   startMouseGridY: number;
   startElementX: number;
   startElementY: number;
   draggedElements: Array<{
-    id: string;
+    id: LayoutElementId;
     startX: number;
     startY: number;
   }>;
@@ -118,10 +122,7 @@ export type SelectionState = {
   endGridY: number;
 };
 
-/**
- * Legacy name kept because it is exported from this shared file.
- * Dynamic signals are not restricted to four values anymore.
- */
+/** Legacy name kept because it is exported from this shared file. */
 export type SignalAspectValue = number;
 
 export type SignalAspectPopoverState = {

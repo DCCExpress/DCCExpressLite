@@ -51,7 +51,7 @@ export function drawScene(
   currentCursor: BaseElementView | null,
   layout: LayoutView,
   settings: EditorSettings,
-  dragId?: string,
+  dragId?: number,
   selected?: BaseElementView,
   selectionRect?: SelectionRect | null,
   turnoutSelectionMode?: boolean,

@@ -1,16 +1,6 @@
-
-import type {
-  Loco,
-} from "@domain/types";
-
-import type {
-  BlockElementView,
-} from "../../models/editor/elements/BlockElementView";
-
-import {
-  wsApi,
-} from "../../services/wsApi";
-
+import type { Loco } from "@domain/types";
+import type { BlockElementView } from "../../models/editor/elements/BlockElementView";
+import { wsApi } from "../../services/wsApi";
 import LocoPicker from "../loco/LocoPicker";
 
 export type TrackCanvasBlockLocoPickerProps = {
@@ -20,16 +10,10 @@ export type TrackCanvasBlockLocoPickerProps = {
   onClose: () => void;
 };
 
-export function TrackCanvasBlockLocoPicker({
-  opened,
-  locos,
-  selectedBlock,
-  onClose,
-}: TrackCanvasBlockLocoPickerProps) {
-  const selectedLocoId =
-    selectedBlock?.locoAddress
-      ? locos.find(loco => loco.address === selectedBlock.locoAddress)?.id || ""
-      : "";
+export function TrackCanvasBlockLocoPicker({ opened, locos, selectedBlock, onClose }: TrackCanvasBlockLocoPickerProps) {
+  const selectedLocoId = selectedBlock?.locoAddress
+    ? locos.find(loco => loco.address === selectedBlock.locoAddress)?.id || ""
+    : "";
 
   return (
     <LocoPicker
@@ -40,32 +24,17 @@ export function TrackCanvasBlockLocoPicker({
         ? `Block: ${selectedBlock.name}`
         : "Assign locomotive to block"}
       onClose={onClose}
-      onSelect={(loco) => {
-        if (!selectedBlock) {
-          return;
-        }
-
-        wsApi.setBlock(
-          selectedBlock.id,
-          loco.id,
-          loco.address
-        );
-
+      onSelect={loco => {
+        if (!selectedBlock) return;
+        // WS compatibility boundary remains a decimal string. The layout model
+        // itself keeps a numeric uint16-style ID.
+        wsApi.setBlock(String(selectedBlock.id), loco.id, loco.address);
         onClose();
       }}
       onRemoveLoco={() => {
-        if (!selectedBlock) {
-          return;
-        }
-
-        const locoId =
-          locos.find(loco => loco.address === selectedBlock.locoAddress)?.id || "";
-
-        wsApi.setBlockRemove(
-          selectedBlock.id,
-          locoId
-        );
-
+        if (!selectedBlock) return;
+        const locoId = locos.find(loco => loco.address === selectedBlock.locoAddress)?.id || "";
+        wsApi.setBlockRemove(String(selectedBlock.id), locoId);
         onClose();
       }}
     />

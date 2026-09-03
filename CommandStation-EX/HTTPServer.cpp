@@ -4,6 +4,7 @@
 #include "DCC.h"
 #include "DCCExpressLite.h"
 #include "DCCExpressLiteDeviceConfig.h"
+#include "DCCExpressLiteLayoutRegistry.h"
 #include "DCCExpressLiteRuntimeCache.h"
 #include "DCCExpressLiteRuntimeState.h"
 #include "DCCExpressLiteSignalLogic.h"
@@ -11,6 +12,7 @@
 #include "HTTPSerialWrapper.h"
 #include "HTTPServer.h"
 #include <esp_freertos_hooks.h>
+#include <stdlib.h>
 #include <vector>
 
 #include <ArduinoJson.h>
@@ -300,7 +302,12 @@ static uint8_t nextSensorReplacementSlot = 0;
 
 static int8_t readTurnoutStateForSignalLogic(uint16_t address)
 {
-  return address <= MAX_LINEAR_ACCESSORY_ADDRESS ? turnoutStateCache.get(address) : -1;
+  if (address > MAX_LINEAR_ACCESSORY_ADDRESS) return -1;
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::findTurnoutByAddress(
+        address, DCCExpressLiteLayoutRegistry::OutputMode::Accessory, endpoint))
+    return -1;
+  return turnoutStateCache.get(endpoint.id, endpoint.channel);
 }
 
 static String escapeJson(const String &input)
@@ -455,12 +462,29 @@ static void dccParseRaw(const String &raw)
   DCCEXParser::parse(&httpCommandStream, command.data(), nullptr);
 }
 
+static bool cacheTurnoutStateByAddress(uint16_t address, bool state)
+{
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::findTurnoutByAddress(
+        address, DCCExpressLiteLayoutRegistry::OutputMode::Accessory, endpoint))
+    return false;
+  return turnoutStateCache.set(endpoint.id, endpoint.channel, state);
+}
+
+static bool cacheBasicAccessoryStateByAddress(uint16_t address, bool state)
+{
+  DCCExpressLiteLayoutRegistry::BasicAccessoryEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::findBasicAccessoryByAddress(address, endpoint))
+    return false;
+  return basicAccessoryStateCache.set(endpoint.id, endpoint.channel, state);
+}
+
 static void writeBasicAccessoryState(uint16_t address, bool active)
 {
   if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS) return;
   dccParseRaw("<a " + String(address) + " " + String(active ? 1 : 0) + ">");
-  if (!basicAccessoryStateCache.set(address, active))
-    Serial.printf("Accessory cache allocation failed for #%u.\n", address);
+  if (!cacheBasicAccessoryStateByAddress(address, active))
+    Serial.printf("Accessory #%u is not uniquely mapped in the layout registry; runtime cache skipped.\n", address);
   broadcastMessage("accessoryChanged", "{\"address\":" + String(address) + ",\"active\":" + String(active ? "true" : "false") + "}");
 }
 
@@ -866,15 +890,19 @@ static void sendDccExStatus(uint32_t clientId = 0)
 
 static void sendTurnoutSnapshot(uint32_t clientId, const AccessoryStateEntry &entry)
 {
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::getTurnout(entry.id, entry.channel, endpoint)) return;
   sendToClient(clientId, "turnoutChanged",
-    "{\"address\":" + String(entry.address) +
+    "{\"address\":" + String(endpoint.address) +
     ",\"closed\":" + String(entry.state > 0 ? "true" : "false") + "}");
 }
 
 static void sendBasicAccessorySnapshot(uint32_t clientId, const AccessoryStateEntry &entry)
 {
+  DCCExpressLiteLayoutRegistry::BasicAccessoryEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::getBasicAccessory(entry.id, entry.channel, endpoint)) return;
   sendToClient(clientId, "accessoryChanged",
-    "{\"address\":" + String(entry.address) +
+    "{\"address\":" + String(endpoint.address) +
     ",\"active\":" + String(entry.state > 0 ? "true" : "false") + "}");
 }
 
@@ -1225,35 +1253,39 @@ static void handleLocosCommand(uint32_t clientId, JsonDocument &doc, const char 
   sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":false,\"message\":\"Unsupported locos action\"}", uuid);
 }
 
-static bool layoutTypeMatches(const char *actual, const char *expected)
+static bool parseLayoutElementId(JsonVariantConst value, uint16_t &id)
 {
-  if (!strcmp(expected, "turnout")) return !strncmp(actual, "trackturnout", 12);
-  return !strcmp(actual, expected);
+  long parsed = 0;
+
+  if (value.is<int>() || value.is<unsigned int>() ||
+      value.is<long>() || value.is<unsigned long>())
+  {
+    parsed = value.as<long>();
+  }
+  else if (value.is<const char *>())
+  {
+    const char *text = value.as<const char *>();
+    if (!text || !text[0]) return false;
+    char *end = nullptr;
+    const unsigned long numeric = strtoul(text, &end, 10);
+    if (!end || *end != '\0' || numeric > 65535UL) return false;
+    parsed = static_cast<long>(numeric);
+  }
+  else
+  {
+    return false;
+  }
+
+  if (parsed < 1 || parsed > 65535) return false;
+  id = static_cast<uint16_t>(parsed);
+  return true;
 }
 
-static uint8_t countLayoutElementsById(JsonDocument &layout, const char *id, const char *expectedType)
+static bool isValidLayoutBlockId(uint16_t blockId)
 {
-  if (!id || !id[0]) return 0;
-  uint8_t totalCount = 0;
-  uint8_t matchingTypeCount = 0;
-  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
-    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
-      if (!strcmp(element["id"] | "", id))
-      {
-        ++totalCount;
-        if (layoutTypeMatches(element["type"] | "", expectedType)) ++matchingTypeCount;
-      }
-  return totalCount == 1 && matchingTypeCount == 1 ? 1 : (totalCount ? 2 : 0);
-}
-
-static bool isValidLayoutBlockId(const char *blockId)
-{
-  File file = LittleFS.open("/layout.json", "r");
-  if (!file) return false;
-  JsonDocument layout;
-  const DeserializationError error = deserializeJson(layout, file);
-  file.close();
-  return !error && countLayoutElementsById(layout, blockId, "trackblock") == 1;
+  return blockId > 0 &&
+    DCCExpressLiteLayoutRegistry::ready() &&
+    DCCExpressLiteLayoutRegistry::containsBlock(blockId);
 }
 
 static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
@@ -1403,8 +1435,8 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     }
 
     dccParseRaw("<a " + String(address) + " " + String(closed ? 1 : 0) + ">");
-    if (!turnoutStateCache.set(static_cast<uint16_t>(address), closed))
-      Serial.printf("Turnout cache allocation failed for #%d.\n", address);
+    if (!cacheTurnoutStateByAddress(static_cast<uint16_t>(address), closed))
+      Serial.printf("Turnout #%d is not uniquely mapped in the layout registry; runtime cache skipped.\n", address);
     DCCExpressLiteRuntimeState::setTurnout(address, closed);
     DCCExpressLiteSignalLogic::notifyTurnout(address, closed);
     broadcastMessage("turnoutChanged", "{\"address\":" + String(address) + ",\"closed\":" + String(closed ? "true" : "false") + "}", uuid);
@@ -1413,10 +1445,11 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 
   if (type == "setBlock")
   {
-    const String blockId = payload["blockId"] | "";
+    uint16_t blockId = 0;
     const int locoAddress = getInt(payload["locoAddress"]);
-    if (!isValidLayoutBlockId(blockId.c_str()) ||
-        !DCCExpressLiteRuntimeState::setBlock(blockId.c_str(), locoAddress))
+    if (!parseLayoutElementId(payload["blockId"], blockId) ||
+        !isValidLayoutBlockId(blockId) ||
+        !DCCExpressLiteRuntimeState::setBlock(blockId, locoAddress))
     {
       sendError(clientId, "invalid_block_or_locomotive", uuid);
       return;
@@ -1427,9 +1460,10 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 
   if (type == "setBlockRemove")
   {
-    const String blockId = payload["blockId"] | "";
-    if (!isValidLayoutBlockId(blockId.c_str()) ||
-        !DCCExpressLiteRuntimeState::removeBlock(blockId.c_str()))
+    uint16_t blockId = 0;
+    if (!parseLayoutElementId(payload["blockId"], blockId) ||
+        !isValidLayoutBlockId(blockId) ||
+        !DCCExpressLiteRuntimeState::removeBlock(blockId))
     {
       sendError(clientId, "invalid_block", uuid);
       return;
@@ -1494,8 +1528,8 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     if (payload["turnoutPhysicalValue"].is<bool>())
     {
       const bool physicalValue = payload["turnoutPhysicalValue"].as<bool>();
-      if (!turnoutStateCache.set(static_cast<uint16_t>(address), physicalValue))
-        Serial.printf("Turnout cache allocation failed for #%d.\n", address);
+      if (!cacheTurnoutStateByAddress(static_cast<uint16_t>(address), physicalValue))
+        Serial.printf("Turnout #%d is not uniquely mapped in the layout registry; runtime cache skipped.\n", address);
       DCCExpressLiteRuntimeState::setTurnout(static_cast<uint16_t>(address), physicalValue);
       DCCExpressLiteSignalLogic::notifyTurnout(static_cast<uint16_t>(address), physicalValue);
       Serial.printf("Extended turnout #%d aspect=%d runtime physical=%u.\n",
@@ -1872,10 +1906,9 @@ void setupHTTPServer()
     uint16_t address = 0;
     bool closed = false;
     if (DCCExpressLiteRuntimeState::getTurnoutAt(i, address, closed) &&
-        !turnoutStateCache.set(address, closed))
+        !cacheTurnoutStateByAddress(address, closed))
     {
-      Serial.printf("Turnout cache allocation failed while restoring #%u.\n", address);
-      break;
+      Serial.printf("Turnout #%u could not be restored into the ID-based runtime cache.\n", address);
     }
   }
 
@@ -2371,6 +2404,7 @@ void loopHTTPServer()
   {
     runtimeStatePrunePending = false;
     DCCExpressLiteRuntimeState::pruneBlocksFromLayout();
+    DCCExpressLiteSignalLogic::reload();
     sendBlockState();
   }
   DCCExpressLiteSignalLogic::loop();

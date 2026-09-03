@@ -8,6 +8,7 @@ import {
 } from "@mantine/core";
 import { IconPlayerPlay, IconTrash } from "@tabler/icons-react";
 
+import type { LayoutElementId } from "@domain/layout/layoutDto";
 import type { BaseElementView } from "../../models/editor/core/BaseElementView";
 import type { LayoutView } from "../../models/editor/core/LayoutView";
 import type { IEditableProperty } from "../../models/editor/elements/PropertyDescriptor";
@@ -35,7 +36,7 @@ type RouteTurnoutSelectionPropertyEditorProps = {
   setBusy?: (busy: boolean, text?: string) => void;
 };
 
-function findElementById(layout: LayoutView, id: string) {
+function findElementById(layout: LayoutView, id: LayoutElementId) {
   return layout.getAllElements().find(element => element.id === id) ?? null;
 }
 
@@ -49,7 +50,7 @@ function getItems(
 
 function removeTurnout(
   selectedElement: BaseElementView,
-  turnoutId: string,
+  turnoutId: LayoutElementId,
   onUpdateSelectedElement: SelectedElementUpdateHandler
 ) {
   const routeButton = selectedElement as RouteButtonElementView;
@@ -66,9 +67,7 @@ function getRouteTurnoutLogicalLabel(
       ? (turnout as any).turnoutClosedValue as boolean
       : true;
 
-  return physicalClosed === turnoutClosedValue
-    ? "C"
-    : "T";
+  return physicalClosed === turnoutClosedValue ? "C" : "T";
 }
 
 export default function RouteTurnoutSelectionPropertyEditor({
@@ -86,34 +85,24 @@ export default function RouteTurnoutSelectionPropertyEditor({
   const hasTurnouts = items.length > 0;
 
   const setRouteTurnoutPhysicalClosed = (
-    turnoutId: string,
+    turnoutId: LayoutElementId,
     physicalClosed: boolean
   ): void => {
     const routeItems = getItems(selectedElement, prop);
     const item = routeItems.find(routeItem => routeItem.turnoutId === turnoutId);
-
-    if (!item) {
-      return;
-    }
-
+    if (!item) return;
     item.closed = physicalClosed;
     onLayoutChange(previous => previous);
   };
 
-  const toggleRouteTurnout = (turnoutId: string): void => {
+  const toggleRouteTurnout = (turnoutId: LayoutElementId): void => {
     const item = items.find(routeItem => routeItem.turnoutId === turnoutId);
-
-    if (!item) {
-      return;
-    }
-
+    if (!item) return;
     setRouteTurnoutPhysicalClosed(turnoutId, !item.closed);
   };
 
   const testRouteButton = async (): Promise<void> => {
-    if (!(selectedElement instanceof RouteButtonElementView)) {
-      return;
-    }
+    if (!(selectedElement instanceof RouteButtonElementView)) return;
 
     await executeLegacyRouteButton({
       routeButton: selectedElement,
@@ -121,14 +110,9 @@ export default function RouteTurnoutSelectionPropertyEditor({
       commandCenterLocked: commandCenter.locked,
       busyText: "Route is being tested...",
       onCommandCenterBusy: () => {
-        showWarningMessage(
-          "Route test",
-          "Command center is busy."
-        );
+        showWarningMessage("Route test", "Command center is busy.");
       },
-      ...(setBusy !== undefined
-        ? { setBusy }
-        : {}),
+      ...(setBusy !== undefined ? { setBusy } : {}),
     });
   };
 
@@ -142,15 +126,12 @@ export default function RouteTurnoutSelectionPropertyEditor({
         >
           {turnoutSelectionMode ? "Finish selection" : "Add turnouts"}
         </Button>
-
         <Button
           size="xs"
           variant="light"
           leftSection={<IconPlayerPlay size={14} />}
           disabled={!hasTurnouts}
-          onClick={() => {
-            void testRouteButton();
-          }}
+          onClick={() => void testRouteButton()}
         >
           Test route
         </Button>
@@ -163,36 +144,20 @@ export default function RouteTurnoutSelectionPropertyEditor({
       </Text>
 
       {items.length === 0 ? (
-        <Text size="xs" c="dimmed">
-          No turnouts selected
-        </Text>
+        <Text size="xs" c="dimmed">No turnouts selected</Text>
       ) : (
         <Stack gap={6}>
           {items.map(item => {
             const turnout = findElementById(layout, item.turnoutId);
-
             if (!turnout) {
               return (
-                <Group
-                  key={item.turnoutId}
-                  justify="space-between"
-                  gap="xs"
-                >
-                  <Text size="xs" c="red">
-                    Missing turnout: {item.turnoutId}
-                  </Text>
-
+                <Group key={item.turnoutId} justify="space-between" gap="xs">
+                  <Text size="xs" c="red">Missing turnout: {item.turnoutId}</Text>
                   <ActionIcon
                     size="sm"
                     color="red"
                     variant="subtle"
-                    onClick={() =>
-                      removeTurnout(
-                        selectedElement,
-                        item.turnoutId,
-                        onUpdateSelectedElement
-                      )
-                    }
+                    onClick={() => removeTurnout(selectedElement, item.turnoutId, onUpdateSelectedElement)}
                   >
                     <IconTrash size={14} />
                   </ActionIcon>
@@ -208,18 +173,8 @@ export default function RouteTurnoutSelectionPropertyEditor({
             previewTurnout.enabled = true;
             (previewTurnout as any).turnoutClosed = item.closed;
 
-            const logicalLabel = getRouteTurnoutLogicalLabel(
-              turnout,
-              item.closed
-            );
-
             return (
-              <Group
-                key={item.turnoutId}
-                gap="xs"
-                wrap="nowrap"
-                align="center"
-              >
+              <Group key={item.turnoutId} gap="xs" wrap="nowrap" align="center">
                 <Box
                   className="route-turnout-preview-button"
                   onClick={() => {
@@ -234,16 +189,12 @@ export default function RouteTurnoutSelectionPropertyEditor({
                     height={40}
                   />
                 </Box>
-
                 <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-                  <Text size="xs" fw={500} truncate>
-                    {turnout.name || "Turnout"}
-                  </Text>
+                  <Text size="xs" fw={500} truncate>{turnout.name || "Turnout"}</Text>
                   <Text size="xs" c="dimmed">
-                    Route state: {logicalLabel}
+                    Route state: {getRouteTurnoutLogicalLabel(turnout, item.closed)}
                   </Text>
                 </Stack>
-
                 <ActionIcon
                   size="sm"
                   color="red"
@@ -251,11 +202,7 @@ export default function RouteTurnoutSelectionPropertyEditor({
                   title="Remove turnout"
                   onClick={event => {
                     event.stopPropagation();
-                    removeTurnout(
-                      selectedElement,
-                      item.turnoutId,
-                      onUpdateSelectedElement
-                    );
+                    removeTurnout(selectedElement, item.turnoutId, onUpdateSelectedElement);
                   }}
                 >
                   <IconTrash size={14} />

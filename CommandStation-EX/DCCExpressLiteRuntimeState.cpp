@@ -1,4 +1,5 @@
 #include "DCCExpressLiteRuntimeState.h"
+#include "DCCExpressLiteLayoutRegistry.h"
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -9,20 +10,21 @@ namespace
 constexpr const char *STATE_PATH = "/runtime-state.json";
 constexpr const char *TEMP_PATH = "/runtime-state.tmp";
 constexpr const char *BACKUP_PATH = "/runtime-state.json.bak";
-constexpr const char *LAYOUT_PATH = "/layout.json";
 constexpr uint8_t MAX_BLOCK_STATES = 48;
 constexpr uint8_t MAX_TURNOUT_STATES = 128;
 constexpr uint32_t SAVE_DELAY_MS = 750;
+constexpr uint8_t STATE_VERSION = 2;
 
 struct BlockState
 {
-  char blockId[48] = {};
+  uint16_t id = 0;
   uint16_t locoAddress = 0;
 };
 
 struct TurnoutState
 {
-  uint16_t address = 0;
+  uint16_t id = 0;
+  uint8_t channel = 0;
   bool closed = false;
 };
 
@@ -39,14 +41,12 @@ bool ensureBlockCapacity(uint8_t required)
 {
   if (required <= blockCapacity) return true;
   if (required > MAX_BLOCK_STATES) return false;
-
   uint8_t next = blockCapacity ? blockCapacity : 4;
   while (next < required)
   {
     const uint16_t doubled = static_cast<uint16_t>(next) * 2;
     next = static_cast<uint8_t>(doubled > MAX_BLOCK_STATES ? MAX_BLOCK_STATES : doubled);
   }
-
   void *memory = realloc(blocks, static_cast<size_t>(next) * sizeof(BlockState));
   if (!memory) return false;
   blocks = static_cast<BlockState *>(memory);
@@ -58,14 +58,12 @@ bool ensureTurnoutCapacity(uint8_t required)
 {
   if (required <= turnoutCapacity) return true;
   if (required > MAX_TURNOUT_STATES) return false;
-
   uint8_t next = turnoutCapacity ? turnoutCapacity : 4;
   while (next < required)
   {
     const uint16_t doubled = static_cast<uint16_t>(next) * 2;
     next = static_cast<uint8_t>(doubled > MAX_TURNOUT_STATES ? MAX_TURNOUT_STATES : doubled);
   }
-
   void *memory = realloc(turnouts, static_cast<size_t>(next) * sizeof(TurnoutState));
   if (!memory) return false;
   turnouts = static_cast<TurnoutState *>(memory);
@@ -75,27 +73,8 @@ bool ensureTurnoutCapacity(uint8_t required)
 
 void clearLoadedState()
 {
-  free(blocks);
-  blocks = nullptr;
-  loadedBlockCount = 0;
-  blockCapacity = 0;
-
-  free(turnouts);
-  turnouts = nullptr;
-  loadedTurnoutCount = 0;
-  turnoutCapacity = 0;
-}
-
-String escapeJsonText(const char *input)
-{
-  String result;
-  if (!input) return result;
-  for (const char *cursor = input; *cursor; ++cursor)
-  {
-    if (*cursor == '\\' || *cursor == '"') result += '\\';
-    result += *cursor;
-  }
-  return result;
+  free(blocks); blocks = nullptr; loadedBlockCount = 0; blockCapacity = 0;
+  free(turnouts); turnouts = nullptr; loadedTurnoutCount = 0; turnoutCapacity = 0;
 }
 
 void markChanged()
@@ -104,27 +83,32 @@ void markChanged()
   changedAtMs = millis();
 }
 
-int findBlock(const char *blockId)
+int findBlock(uint16_t id)
 {
-  if (!blockId || !blockId[0]) return -1;
   for (uint8_t i = 0; i < loadedBlockCount; ++i)
-    if (!strcmp(blocks[i].blockId, blockId)) return i;
+    if (blocks[i].id == id) return i;
   return -1;
 }
 
 void removeBlockAt(uint8_t index)
 {
   if (index >= loadedBlockCount) return;
-  for (uint8_t i = index + 1; i < loadedBlockCount; ++i)
-    blocks[i - 1] = blocks[i];
+  for (uint8_t i = index + 1; i < loadedBlockCount; ++i) blocks[i - 1] = blocks[i];
   --loadedBlockCount;
 }
 
-int findTurnout(uint16_t address)
+int findTurnout(uint16_t id, uint8_t channel)
 {
   for (uint8_t i = 0; i < loadedTurnoutCount; ++i)
-    if (turnouts[i].address == address) return i;
+    if (turnouts[i].id == id && turnouts[i].channel == channel) return i;
   return -1;
+}
+
+void removeTurnoutAt(uint8_t index)
+{
+  if (index >= loadedTurnoutCount) return;
+  for (uint8_t i = index + 1; i < loadedTurnoutCount; ++i) turnouts[i - 1] = turnouts[i];
+  --loadedTurnoutCount;
 }
 
 bool saveState()
@@ -133,35 +117,30 @@ bool saveState()
   File file = LittleFS.open(TEMP_PATH, "w");
   if (!file) return false;
 
-  file.print(F("{\"version\":1,\"blocks\":["));
+  file.print(F("{\"version\":"));
+  file.print(STATE_VERSION);
+  file.print(F(",\"blocks\":["));
   for (uint8_t i = 0; i < loadedBlockCount; ++i)
   {
     if (i) file.print(',');
-    file.print(F("{\"blockId\":\""));
-    file.print(escapeJsonText(blocks[i].blockId));
-    file.print(F("\",\"locoAddress\":"));
-    file.print(blocks[i].locoAddress);
+    file.print(F("{\"id\":")); file.print(blocks[i].id);
+    file.print(F(",\"locoAddress\":")); file.print(blocks[i].locoAddress);
     file.print('}');
   }
   file.print(F("],\"turnouts\":["));
   for (uint8_t i = 0; i < loadedTurnoutCount; ++i)
   {
     if (i) file.print(',');
-    file.print(F("{\"address\":"));
-    file.print(turnouts[i].address);
-    file.print(F(",\"closed\":"));
-    file.print(turnouts[i].closed ? F("true") : F("false"));
+    file.print(F("{\"id\":")); file.print(turnouts[i].id);
+    file.print(F(",\"channel\":")); file.print(turnouts[i].channel);
+    file.print(F(",\"closed\":")); file.print(turnouts[i].closed ? F("true") : F("false"));
     file.print('}');
   }
   file.print(F("]}"));
   file.flush();
   const bool ok = file.getWriteError() == 0;
   file.close();
-  if (!ok)
-  {
-    LittleFS.remove(TEMP_PATH);
-    return false;
-  }
+  if (!ok) { LittleFS.remove(TEMP_PATH); return false; }
 
   LittleFS.remove(BACKUP_PATH);
   if (LittleFS.exists(STATE_PATH) && !LittleFS.rename(STATE_PATH, BACKUP_PATH))
@@ -175,10 +154,31 @@ bool saveState()
   return false;
 }
 
+bool appendBlock(uint16_t id, int locoAddress)
+{
+  if (!id || locoAddress < 1 || locoAddress > 10239 || !DCCExpressLiteLayoutRegistry::containsBlock(id)) return false;
+  if (loadedBlockCount >= MAX_BLOCK_STATES || !ensureBlockCapacity(loadedBlockCount + 1)) return false;
+  BlockState &state = blocks[loadedBlockCount++];
+  state.id = id;
+  state.locoAddress = static_cast<uint16_t>(locoAddress);
+  return true;
+}
+
+bool appendTurnout(uint16_t id, uint8_t channel, bool closed)
+{
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!id || channel > 1 || !DCCExpressLiteLayoutRegistry::getTurnout(id, channel, endpoint)) return false;
+  if (loadedTurnoutCount >= MAX_TURNOUT_STATES || !ensureTurnoutCapacity(loadedTurnoutCount + 1)) return false;
+  TurnoutState &state = turnouts[loadedTurnoutCount++];
+  state.id = id;
+  state.channel = channel;
+  state.closed = closed;
+  return true;
+}
+
 void loadState()
 {
   clearLoadedState();
-
   File file = LittleFS.open(STATE_PATH, "r");
   if (!file) return;
   JsonDocument document;
@@ -190,51 +190,76 @@ void loadState()
     return;
   }
 
+  const int version = document["version"] | 1;
+  bool migrated = version != STATE_VERSION;
+
   for (JsonObjectConst source : document["blocks"].as<JsonArrayConst>())
   {
     if (loadedBlockCount >= MAX_BLOCK_STATES) break;
-    const char *blockId = source["blockId"] | "";
     const int locoAddress = source["locoAddress"] | 0;
-    if (!blockId[0] || locoAddress < 1 || locoAddress > 10239) continue;
-    if (!ensureBlockCapacity(loadedBlockCount + 1)) break;
-    BlockState &target = blocks[loadedBlockCount++];
-    target = BlockState{};
-    strlcpy(target.blockId, blockId, sizeof(target.blockId));
-    target.locoAddress = static_cast<uint16_t>(locoAddress);
+    uint16_t id = 0;
+    if (version >= 2)
+    {
+      const int rawId = source["id"] | 0;
+      if (rawId > 0 && rawId <= 65535) id = static_cast<uint16_t>(rawId);
+    }
+    else
+    {
+      const char *legacyId = source["blockId"] | "";
+      DCCExpressLiteLayoutRegistry::normalizeBlockId(legacyId, id);
+    }
+    if (!appendBlock(id, locoAddress)) continue;
   }
 
   for (JsonObjectConst source : document["turnouts"].as<JsonArrayConst>())
   {
     if (loadedTurnoutCount >= MAX_TURNOUT_STATES) break;
-    const int address = source["address"] | 0;
-    if (address < 1 || address > 2048) continue;
-    if (!ensureTurnoutCapacity(loadedTurnoutCount + 1)) break;
-    TurnoutState &target = turnouts[loadedTurnoutCount++];
-    target.address = static_cast<uint16_t>(address);
-    target.closed = source["closed"] | false;
+    uint16_t id = 0;
+    uint8_t channel = 0;
+    if (version >= 2)
+    {
+      const int rawId = source["id"] | 0;
+      const int rawChannel = source["channel"] | 0;
+      if (rawId > 0 && rawId <= 65535 && rawChannel >= 0 && rawChannel <= 1)
+      {
+        id = static_cast<uint16_t>(rawId);
+        channel = static_cast<uint8_t>(rawChannel);
+      }
+    }
+    else
+    {
+      const int address = source["address"] | 0;
+      DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+      if (address > 0 && address <= 32767 &&
+          DCCExpressLiteLayoutRegistry::findTurnoutByAddress(static_cast<uint16_t>(address), endpoint))
+      {
+        id = endpoint.id;
+        channel = endpoint.channel;
+      }
+    }
+    appendTurnout(id, channel, source["closed"] | false);
   }
-  Serial.printf("Runtime state: loaded %u block(s), %u turnout(s).\n",
-    loadedBlockCount, loadedTurnoutCount);
-}
 
-bool layoutContainsBlock(JsonDocument &layout, const char *blockId)
-{
-  for (JsonObjectConst layer : layout["layers"].as<JsonArrayConst>())
-    for (JsonObjectConst element : layer["elements"].as<JsonArrayConst>())
-      if (!strcmp(element["type"] | "", "trackblock") &&
-          !strcmp(element["id"] | "", blockId)) return true;
-  return false;
+  Serial.printf("Runtime state: loaded %u block(s), %u turnout(s), version=%d.\n",
+                loadedBlockCount, loadedTurnoutCount, version);
+
+  if (migrated)
+  {
+    Serial.println(F("Runtime state: legacy state migrated to numeric layout IDs."));
+    markChanged();
+  }
 }
 }
 
 void DCCExpressLiteRuntimeState::begin()
 {
+  DCCExpressLiteLayoutRegistry::begin();
   if (!LittleFS.exists(STATE_PATH))
   {
     File file = LittleFS.open(STATE_PATH, "w");
     if (file)
     {
-      file.print(F("{\"version\":1,\"blocks\":[],\"turnouts\":[]}"));
+      file.print(F("{\"version\":2,\"blocks\":[],\"turnouts\":[]}"));
       file.close();
     }
   }
@@ -249,30 +274,26 @@ void DCCExpressLiteRuntimeState::loop()
   else changedAtMs = millis();
 }
 
-bool DCCExpressLiteRuntimeState::setBlock(const char *blockId, uint16_t locoAddress)
+bool DCCExpressLiteRuntimeState::setBlock(uint16_t blockId, uint16_t locoAddress)
 {
-  if (!blockId || !blockId[0] || strlen(blockId) >= sizeof(BlockState::blockId) ||
-      locoAddress < 1 || locoAddress > 10239) return false;
+  if (!DCCExpressLiteLayoutRegistry::containsBlock(blockId) ||
+      locoAddress < 1 || locoAddress > 10239)
+    return false;
 
   for (int i = loadedBlockCount - 1; i >= 0; --i)
   {
-    if (!strcmp(blocks[i].blockId, blockId) || blocks[i].locoAddress == locoAddress)
+    if (blocks[i].id == blockId || blocks[i].locoAddress == locoAddress)
       removeBlockAt(static_cast<uint8_t>(i));
   }
 
-  if (loadedBlockCount >= MAX_BLOCK_STATES || !ensureBlockCapacity(loadedBlockCount + 1))
-    return false;
-
-  BlockState &target = blocks[loadedBlockCount++];
-  target = BlockState{};
-  strlcpy(target.blockId, blockId, sizeof(target.blockId));
-  target.locoAddress = locoAddress;
+  if (!appendBlock(blockId, locoAddress)) return false;
   markChanged();
   return true;
 }
 
-bool DCCExpressLiteRuntimeState::removeBlock(const char *blockId)
+bool DCCExpressLiteRuntimeState::removeBlock(uint16_t blockId)
 {
+  if (!DCCExpressLiteLayoutRegistry::containsBlock(blockId)) return false;
   const int index = findBlock(blockId);
   if (index < 0) return true;
   removeBlockAt(static_cast<uint8_t>(index));
@@ -293,7 +314,7 @@ String DCCExpressLiteRuntimeState::blockStateJson()
   for (uint8_t i = 0; i < loadedBlockCount; ++i)
   {
     if (i) json += ',';
-    const String id = escapeJsonText(blocks[i].blockId);
+    const String id = String(blocks[i].id);
     json += "\"" + id + "\":{\"blockId\":\"" + id +
       "\",\"locoId\":null,\"locoAddress\":" + String(blocks[i].locoAddress) + "}";
   }
@@ -301,15 +322,18 @@ String DCCExpressLiteRuntimeState::blockStateJson()
   return json;
 }
 
-uint8_t DCCExpressLiteRuntimeState::blockCount()
-{
-  return loadedBlockCount;
-}
+uint8_t DCCExpressLiteRuntimeState::blockCount() { return loadedBlockCount; }
 
 void DCCExpressLiteRuntimeState::setTurnout(uint16_t address, bool closed)
 {
-  if (address < 1 || address > 2048) return;
-  const int index = findTurnout(address);
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::findTurnoutByAddress(address, endpoint))
+  {
+    Serial.printf("Runtime state: turnout address #%u is not uniquely mapped to a layout ID.\n", address);
+    return;
+  }
+
+  const int index = findTurnout(endpoint.id, endpoint.channel);
   if (index >= 0)
   {
     if (turnouts[index].closed == closed) return;
@@ -318,51 +342,50 @@ void DCCExpressLiteRuntimeState::setTurnout(uint16_t address, bool closed)
     return;
   }
 
-  if (loadedTurnoutCount >= MAX_TURNOUT_STATES ||
-      !ensureTurnoutCapacity(loadedTurnoutCount + 1))
-    return;
-
-  TurnoutState &target = turnouts[loadedTurnoutCount++];
-  target.address = address;
-  target.closed = closed;
+  if (!appendTurnout(endpoint.id, endpoint.channel, closed)) return;
   markChanged();
 }
 
 int8_t DCCExpressLiteRuntimeState::getTurnout(uint16_t address)
 {
-  const int index = findTurnout(address);
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::findTurnoutByAddress(address, endpoint)) return -1;
+  const int index = findTurnout(endpoint.id, endpoint.channel);
   return index >= 0 ? (turnouts[index].closed ? 1 : 0) : -1;
 }
 
-uint8_t DCCExpressLiteRuntimeState::turnoutCount()
-{
-  return loadedTurnoutCount;
-}
+uint8_t DCCExpressLiteRuntimeState::turnoutCount() { return loadedTurnoutCount; }
 
 bool DCCExpressLiteRuntimeState::getTurnoutAt(uint8_t index, uint16_t &address, bool &closed)
 {
   if (index >= loadedTurnoutCount) return false;
-  address = turnouts[index].address;
+  DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+  if (!DCCExpressLiteLayoutRegistry::getTurnout(turnouts[index].id, turnouts[index].channel, endpoint)) return false;
+  address = endpoint.address;
   closed = turnouts[index].closed;
   return true;
 }
 
 bool DCCExpressLiteRuntimeState::pruneBlocksFromLayout()
 {
-  File file = LittleFS.open(LAYOUT_PATH, "r");
-  if (!file) return false;
-  JsonDocument layout;
-  const DeserializationError error = deserializeJson(layout, file);
-  file.close();
-  if (error) return false;
+  if (!DCCExpressLiteLayoutRegistry::reload()) return false;
 
   bool changed = false;
   for (int i = loadedBlockCount - 1; i >= 0; --i)
   {
-    if (layoutContainsBlock(layout, blocks[i].blockId)) continue;
+    if (DCCExpressLiteLayoutRegistry::containsBlock(blocks[i].id)) continue;
     removeBlockAt(static_cast<uint8_t>(i));
     changed = true;
   }
+
+  for (int i = loadedTurnoutCount - 1; i >= 0; --i)
+  {
+    DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
+    if (DCCExpressLiteLayoutRegistry::getTurnout(turnouts[i].id, turnouts[i].channel, endpoint)) continue;
+    removeTurnoutAt(static_cast<uint8_t>(i));
+    changed = true;
+  }
+
   if (changed) markChanged();
   return true;
 }

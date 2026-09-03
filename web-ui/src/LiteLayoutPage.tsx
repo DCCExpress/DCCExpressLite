@@ -746,7 +746,9 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
       (element): element is BlockElementView => element instanceof BlockElementView,
     );
     for (const block of blocks) block.locoAddress = 0;
-    for (const [blockId, state] of Object.entries(data)) {
+    for (const [wireBlockId, state] of Object.entries(data)) {
+      const blockId = Number(wireBlockId);
+      if (!Number.isInteger(blockId) || blockId < 1 || blockId > 0xffff) continue;
       const block = blocks.find(item => item.id === blockId);
       if (!block) continue;
       block.locoAddress = state.locoAddress ??

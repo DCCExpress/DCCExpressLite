@@ -21,16 +21,9 @@ import { wsApi } from "@/services/wsApi";
 import { wsClient, type WsConnectionStatus } from "@/services/wsClient";
 
 const CURSOR_TOOL: EditorTool = { mode: "cursor", elementType: "general" };
+type RuntimeLayoutOverlayProps = { locos: Loco[]; open: boolean };
 
-type RuntimeLayoutOverlayProps = {
-  locos: Loco[];
-  open: boolean;
-};
-
-export default function RuntimeLayoutOverlay({
-  locos,
-  open,
-}: RuntimeLayoutOverlayProps) {
+export default function RuntimeLayoutOverlay({ locos, open }: RuntimeLayoutOverlayProps) {
   const commandCenter = useCommandCenter();
   const [layout, setLayout] = useState(() => new LayoutView());
   const [selectedElement, setSelectedElement] = useState<BaseElementView | null>(null);
@@ -65,19 +58,12 @@ export default function RuntimeLayoutOverlay({
       .catch(loadError => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => wsClient.subscribeStatus(setWsStatus), []);
-
-  useEffect(() => {
-    for (const loco of locos) {
-      if (loco.image) getCanvasImage(loco.image);
-    }
-  }, [locos]);
+  useEffect(() => { for (const loco of locos) if (loco.image) getCanvasImage(loco.image); }, [locos]);
 
   useEffect(() => wsClient.on("error", data => {
     if (data.message === "track_power_off") {
@@ -101,9 +87,7 @@ export default function RuntimeLayoutOverlay({
   }), [layout, invalidate]);
 
   useEffect(() => wsClient.on("sensorChanged", data => {
-    for (const element of layout.getAllElements()) {
-      if (element instanceof TrackSensorElementView && element.address === data.address) element.on = data.on;
-    }
+    for (const element of layout.getAllElements()) if (element instanceof TrackSensorElementView && element.address === data.address) element.on = data.on;
     invalidate();
   }), [layout, invalidate]);
 
@@ -153,11 +137,7 @@ export default function RuntimeLayoutOverlay({
 
   useEffect(() => wsClient.on("signalAspectChanged", data => {
     for (const element of layout.getAllElements()) {
-      if (
-        element instanceof TrackSignalElementView &&
-        element.signalOutput.protocol === "dccext" &&
-        element.signalOutput.address === data.address
-      ) {
+      if (element instanceof TrackSignalElementView && element.signalOutput.protocol === "dccext" && element.signalOutput.address === data.address) {
         element.setCurrentStateByAspect(data.aspect);
       }
     }
@@ -165,77 +145,33 @@ export default function RuntimeLayoutOverlay({
   }), [layout, invalidate]);
 
   useEffect(() => wsClient.on("blockStateChanged", data => {
-    const blocks = layout.getAllElements().filter(
-      (element): element is BlockElementView =>
-        element instanceof BlockElementView,
-    );
-
-    for (const block of blocks) {
-      block.locoAddress = 0;
-    }
-
-    for (const [blockId, state] of Object.entries(data)) {
+    const blocks = layout.getAllElements().filter((element): element is BlockElementView => element instanceof BlockElementView);
+    for (const block of blocks) block.locoAddress = 0;
+    for (const [wireBlockId, state] of Object.entries(data)) {
+      const blockId = Number(wireBlockId);
+      if (!Number.isInteger(blockId) || blockId < 1 || blockId > 0xffff) continue;
       const block = blocks.find(item => item.id === blockId);
       if (!block) continue;
-
-      block.locoAddress = state.locoAddress ??
-        locos.find(loco => loco.id === state.locoId)?.address ??
-        0;
+      block.locoAddress = state.locoAddress ?? locos.find(loco => loco.id === state.locoId)?.address ?? 0;
     }
-
     invalidate();
   }), [layout, locos, invalidate]);
 
-  useEffect(() => {
-    if (wsStatus === "connected") wsApi.getLayoutRuntimeSnapshot();
-  }, [wsStatus, layout]);
-
+  useEffect(() => { if (wsStatus === "connected") wsApi.getLayoutRuntimeSnapshot(); }, [wsStatus, layout]);
   useEffect(() => {
     if (!open || loading || error) return;
-
-    const frame = window.requestAnimationFrame(() => {
-      invalidate();
-    });
-
+    const frame = window.requestAnimationFrame(() => invalidate());
     return () => window.cancelAnimationFrame(frame);
   }, [open, loading, error, invalidate]);
+  useEffect(() => { if (!open) { setFitCounter(0); setCenterCounter(0); } }, [open]);
 
-  useEffect(() => {
-    if (open) return;
-    setFitCounter(0);
-    setCenterCounter(0);
-  }, [open]);
-
-  // Keep the parsed layout and all realtime subscriptions alive while the
-  // panel is closed, but do not keep an invisible canvas rendering on mobile.
   if (!open) return null;
-
-  if (loading) {
-    return (
-      <Center
-        className="mobile-runtime-layout-overlay"
-      >
-        <Loader />
-      </Center>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box
-        className="mobile-runtime-layout-overlay"
-        p="md"
-      >
-        <Alert color="red">{error}</Alert>
-      </Box>
-    );
-  }
+  if (loading) return <Center className="mobile-runtime-layout-overlay"><Loader /></Center>;
+  if (error) return <Box className="mobile-runtime-layout-overlay" p="md"><Alert color="red">{error}</Alert></Box>;
 
   return (
     <>
-      <Box
-        className="mobile-runtime-layout-overlay"
-      >
+      <Box className="mobile-runtime-layout-overlay">
         <Box className="mobile-runtime-layout-canvas">
           <TrackCanvas
             editMode={false}
@@ -256,26 +192,10 @@ export default function RuntimeLayoutOverlay({
         </Box>
       </Box>
       {open && <Group className="mobile-layout-tools" gap="xs" wrap="nowrap">
-        <ActionIcon
-          size={52}
-          radius="xl"
-          variant="filled"
-          color="cyan"
-          aria-label="Center layout view"
-          title="Center layout view"
-          onClick={() => setCenterCounter(value => value + 1)}
-        >
+        <ActionIcon size={52} radius="xl" variant="filled" color="cyan" aria-label="Center layout view" title="Center layout view" onClick={() => setCenterCounter(value => value + 1)}>
           <IconCrosshair size={25} />
         </ActionIcon>
-        <ActionIcon
-          size={52}
-          radius="xl"
-          variant="filled"
-          color="teal"
-          aria-label="Fit layout view"
-          title="Fit layout view"
-          onClick={() => setFitCounter(value => value + 1)}
-        >
+        <ActionIcon size={52} radius="xl" variant="filled" color="teal" aria-label="Fit layout view" title="Fit layout view" onClick={() => setFitCounter(value => value + 1)}>
           <IconArrowsMaximize size={25} />
         </ActionIcon>
         <ActionIcon

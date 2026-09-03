@@ -1,4 +1,6 @@
 import type { Loco } from "@domain/types";
+import type { LayoutElementId } from "@domain/layout/layoutDto";
+import { INVALID_LAYOUT_ELEMENT_ID } from "@domain/layout/layoutDto";
 import type { SignalLogicDocumentDto } from "@domain/signalLogic";
 import { validateSignalLogicDocument } from "@domain/signalLogic";
 import { ELEMENT_TYPES } from "@domain/layout/elementTypes";
@@ -8,29 +10,16 @@ import { TrackSensorElementView } from "@/models/editor/elements/TrackSensorElem
 import { TrackSignalElementView } from "@/models/editor/elements/TrackSignalElementView";
 
 export type IntegrityArea = "Layout" | "Route buttons" | "Automatic routes" | "Signal logic" | "Locomotives";
-
-export type IntegrityIssue = {
-  level: "error" | "warning";
-  area: IntegrityArea;
-  message: string;
-};
-
-export type IntegrityAreaResult = {
-  area: IntegrityArea;
-  checked: number;
-  issues: IntegrityIssue[];
-};
-
-export type IntegrityReport = {
-  areas: IntegrityAreaResult[];
-  issues: IntegrityIssue[];
-};
+export type IntegrityIssue = { level: "error" | "warning"; area: IntegrityArea; message: string };
+export type IntegrityAreaResult = { area: IntegrityArea; checked: number; issues: IntegrityIssue[] };
+export type IntegrityReport = { areas: IntegrityAreaResult[]; issues: IntegrityIssue[] };
 
 const AREAS: IntegrityArea[] = ["Layout", "Route buttons", "Automatic routes", "Signal logic", "Locomotives"];
 
-function elementLabel(data: { name?: string; id?: string }, fallback: string): string {
+function elementLabel(data: { name?: string; id?: LayoutElementId }, fallback: string): string {
   const name = data.name?.trim();
-  return name && name !== "element" ? `${name} (${data.id})` : `${fallback} (${data.id || "missing ID"})`;
+  const id = data.id && data.id !== INVALID_LAYOUT_ELEMENT_ID ? String(data.id) : "missing ID";
+  return name && name !== "element" ? `${name} (${id})` : `${fallback} (${id})`;
 }
 
 export function inspectProjectIntegrity(
@@ -42,18 +31,18 @@ export function inspectProjectIntegrity(
   const elements = layout.getAllElements();
   const issues: IntegrityIssue[] = [];
   const checked = new Map<IntegrityArea, number>(AREAS.map(area => [area, 0]));
-  const add = (area: IntegrityArea, level: IntegrityIssue["level"], message: string) =>
-    issues.push({ area, level, message });
+  const add = (area: IntegrityArea, level: IntegrityIssue["level"], message: string) => issues.push({ area, level, message });
 
   checked.set("Layout", elements.length);
-  const idCounts = new Map<string, number>();
+  const idCounts = new Map<LayoutElementId, number>();
   for (const element of elements) {
-    if (!element.id?.trim()) add("Layout", "error", `${element.type} has no element ID.`);
-    else idCounts.set(element.id, (idCounts.get(element.id) ?? 0) + 1);
+    if (!Number.isInteger(element.id) || element.id < 1 || element.id > 0xffff) {
+      add("Layout", "error", `${element.type} has no valid numeric element ID.`);
+      continue;
+    }
+    idCounts.set(element.id, (idCounts.get(element.id) ?? 0) + 1);
   }
-  for (const [id, count] of idCounts) {
-    if (count > 1) add("Layout", "error", `Element ID ${id} is used ${count} times.`);
-  }
+  for (const [id, count] of idCounts) if (count > 1) add("Layout", "error", `Element ID ${id} is used ${count} times.`);
 
   const turnoutById = new Map(elements.filter(isTurnoutElement).map(element => [element.id, element]));
   const blockById = new Map(elements.filter(element => element.type === ELEMENT_TYPES.TRACK_BLOCK).map(element => [element.id, element]));
@@ -62,31 +51,29 @@ export function inspectProjectIntegrity(
   checked.set("Route buttons", routeButtons.length);
   for (const element of routeButtons) {
     const data = element.toJSON() as {
-      id: string;
+      id: LayoutElementId;
       name?: string;
-      routeTurnouts?: Array<{ turnoutId?: string; closed?: boolean }>;
+      routeTurnouts?: Array<{ turnoutId?: LayoutElementId; closed?: boolean; channel?: 0 | 1 }>;
     };
     const label = elementLabel(data, "Route button");
     const routeTurnouts = Array.isArray(data.routeTurnouts) ? data.routeTurnouts : [];
     if (routeTurnouts.length === 0) add("Route buttons", "warning", `${label} has no turnouts assigned.`);
     const usedTurnouts = new Set<string>();
     for (const reference of routeTurnouts) {
-      const turnoutId = reference.turnoutId?.trim() ?? "";
-      if (!turnoutId) {
-        add("Route buttons", "error", `${label} contains a turnout reference without an ID.`);
+      const turnoutId = Number(reference.turnoutId ?? 0);
+      const channel = reference.channel === 1 ? 1 : 0;
+      if (!Number.isInteger(turnoutId) || turnoutId < 1 || turnoutId > 0xffff) {
+        add("Route buttons", "error", `${label} contains a turnout reference without a valid numeric ID.`);
         continue;
       }
-      if (usedTurnouts.has(turnoutId)) add("Route buttons", "error", `${label} references turnout ${turnoutId} more than once.`);
-      usedTurnouts.add(turnoutId);
+      const key = `${turnoutId}:${channel}`;
+      if (usedTurnouts.has(key)) add("Route buttons", "error", `${label} references turnout ${turnoutId}/${channel} more than once.`);
+      usedTurnouts.add(key);
       if (!turnoutById.has(turnoutId)) {
         const existing = elements.find(candidate => candidate.id === turnoutId);
-        add(
-          "Route buttons",
-          "error",
-          existing
-            ? `${label} references ${turnoutId}, but that element is not a supported turnout.`
-            : `${label} references deleted turnout ${turnoutId}.`
-        );
+        add("Route buttons", "error", existing
+          ? `${label} references ${turnoutId}, but that element is not a supported turnout.`
+          : `${label} references deleted turnout ${turnoutId}.`);
       }
     }
   }
@@ -94,10 +81,15 @@ export function inspectProjectIntegrity(
   const automaticRoutes = elements.filter(element => element.type === ELEMENT_TYPES.BUTTON_ROUTE_EXTENDED);
   checked.set("Automatic routes", automaticRoutes.length);
   for (const element of automaticRoutes) {
-    const data = element.toJSON() as { id: string; name?: string; fromBlockId?: string; toBlockId?: string };
+    const data = element.toJSON() as {
+      id: LayoutElementId;
+      name?: string;
+      fromBlockId?: LayoutElementId;
+      toBlockId?: LayoutElementId;
+    };
     const label = elementLabel(data, "Automatic route");
-    const from = data.fromBlockId?.trim() ?? "";
-    const to = data.toBlockId?.trim() ?? "";
+    const from = Number(data.fromBlockId ?? 0);
+    const to = Number(data.toBlockId ?? 0);
     if (!from) add("Automatic routes", "error", `${label} has no start block.`);
     else if (!blockById.has(from)) add("Automatic routes", "error", `${label} references deleted or invalid start block ${from}.`);
     if (!to) add("Automatic routes", "error", `${label} has no destination block.`);
@@ -106,10 +98,8 @@ export function inspectProjectIntegrity(
   }
 
   if (signalDocument) {
-    checked.set(
-      "Signal logic",
-      signalDocument.groups.reduce((total, group) => total + group.rules.reduce((sum, rule) => sum + rule.conditions.length, 0), 0)
-    );
+    checked.set("Signal logic", signalDocument.groups.reduce(
+      (total, group) => total + group.rules.reduce((sum, rule) => sum + rule.conditions.length, 0), 0));
     const signalIssues = validateSignalLogicDocument(
       signalDocument,
       elements.filter((element): element is TrackSignalElementView => element instanceof TrackSignalElementView)
@@ -120,27 +110,23 @@ export function inspectProjectIntegrity(
     );
     for (const issue of [...signalLoadIssues, ...signalIssues]) add("Signal logic", issue.level, issue.message);
 
-    // The generic rule validator deliberately permits an empty catalogue while
-    // rules are being edited. A project-wide integrity check must be stricter:
-    // even the last deleted turnout/sensor has to leave a visible orphan error.
-    const signalIds = new Set(
-      elements.filter((element): element is TrackSignalElementView => element instanceof TrackSignalElementView)
-        .map(signal => signal.id)
-    );
-    const sensorIds = new Set(
-      elements.filter((element): element is TrackSensorElementView => element instanceof TrackSensorElementView)
-        .map(sensor => sensor.id)
-    );
+    const signalIds = new Set(elements
+      .filter((element): element is TrackSignalElementView => element instanceof TrackSignalElementView)
+      .map(signal => signal.id));
+    const sensorIds = new Set(elements
+      .filter((element): element is TrackSensorElementView => element instanceof TrackSensorElementView)
+      .map(sensor => sensor.id));
+
     for (const group of signalDocument.groups) {
-      if (group.signalId && !signalIds.has(group.signalId)) {
+      if (group.signalId !== INVALID_LAYOUT_ELEMENT_ID && !signalIds.has(group.signalId)) {
         add("Signal logic", "error", `Signal rule group ${group.id} references deleted signal ${group.signalId}.`);
       }
       for (const rule of group.rules) {
         for (const condition of rule.conditions) {
-          if (condition.type === "turnout" && condition.turnoutId && !turnoutById.has(condition.turnoutId)) {
+          if (condition.type === "turnout" && condition.turnoutId !== INVALID_LAYOUT_ELEMENT_ID && !turnoutById.has(condition.turnoutId)) {
             add("Signal logic", "error", `Signal rule ${rule.id} references deleted turnout ${condition.turnoutId}.`);
           }
-          if (condition.type === "sensor" && condition.sensorId && !sensorIds.has(condition.sensorId)) {
+          if (condition.type === "sensor" && condition.sensorId !== INVALID_LAYOUT_ELEMENT_ID && !sensorIds.has(condition.sensorId)) {
             add("Signal logic", "error", `Signal rule ${rule.id} references deleted sensor ${condition.sensorId}.`);
           }
         }
@@ -169,8 +155,7 @@ export function inspectProjectIntegrity(
   }
 
   const uniqueIssues = issues.filter((issue, index, all) =>
-    all.findIndex(candidate => candidate.area === issue.area && candidate.level === issue.level && candidate.message === issue.message) === index
-  );
+    all.findIndex(candidate => candidate.area === issue.area && candidate.level === issue.level && candidate.message === issue.message) === index);
   return {
     areas: AREAS.map(area => ({ area, checked: checked.get(area) ?? 0, issues: uniqueIssues.filter(issue => issue.area === area) })),
     issues: uniqueIssues,

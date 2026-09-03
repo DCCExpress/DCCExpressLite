@@ -4,7 +4,8 @@
 
 struct AccessoryStateEntry
 {
-  uint16_t address = 0;
+  uint16_t id = 0;
+  uint8_t channel = 0;
   int8_t state = -1;
 };
 
@@ -17,9 +18,10 @@ public:
   AccessoryStateCache(const AccessoryStateCache &) = delete;
   AccessoryStateCache &operator=(const AccessoryStateCache &) = delete;
 
-  int8_t get(uint16_t address) const;
-  bool set(uint16_t address, bool state);
+  int8_t get(uint16_t id, uint8_t channel = 0) const;
+  bool set(uint16_t id, uint8_t channel, bool state);
   void clear();
+  void remove(uint16_t id, uint8_t channel = 0);
 
   size_t size() const { return count_; }
   const AccessoryStateEntry *at(size_t index) const;

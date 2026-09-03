@@ -7,11 +7,25 @@ import type {
   SignalOutputConfiguration,
 } from "./signalOutput.js";
 
+/**
+ * Stable layout entity identifier.
+ *
+ * 0 is reserved as "not assigned". Persisted layout entities use 1..65535.
+ */
+export type LayoutElementId = number;
+export const INVALID_LAYOUT_ELEMENT_ID: LayoutElementId = 0;
+export const MAX_LAYOUT_ELEMENT_ID: LayoutElementId = 0xffff;
+
 export type RotationStepDto = 0 | 45 | 90;
 
 export type RouteTurnoutItemDto = {
-  turnoutId: string;
+  turnoutId: LayoutElementId;
   closed: boolean;
+};
+
+export type SerializedRouteTurnoutItemDto = {
+  turnoutId?: LayoutElementId | string;
+  closed?: boolean;
 };
 
 export type AudioListButtonItemDto = {
@@ -27,8 +41,12 @@ export type LevelCrossingBarrierTypeDto =
 
 export type SensorKindDto = number;
 
+/**
+ * Raw JSON shape. Element IDs are allowed to be strings here only so old
+ * UUID based layout files can be migrated when they are loaded.
+ */
 export type SerializedLayoutElementDto = {
-  id?: string;
+  id?: LayoutElementId | string;
   type?: ElementType | string;
   name?: string;
   layerName?: string;
@@ -76,10 +94,10 @@ export type SerializedLayoutElementDto = {
   blinkingEnabled?: boolean;
   roadColor?: string;
 
-  routeTurnouts?: RouteTurnoutItemDto[];
+  routeTurnouts?: SerializedRouteTurnoutItemDto[];
 
-  fromBlockId?: string;
-  toBlockId?: string;
+  fromBlockId?: LayoutElementId | string;
+  toBlockId?: LayoutElementId | string;
 
   locoAddress?: number;
   sensorAddress?: number;
@@ -95,9 +113,7 @@ export type SerializedLayoutElementDto = {
   signalOutput?: SignalOutputConfiguration;
   currentStateIndex?: number;
 
-  /**
-   * Legacy signal fields.
-   */
+  /** Legacy signal fields. */
   aspect?: number;
   addressLength?: number;
   dispalyAsSingleLamp?: boolean;
@@ -125,7 +141,7 @@ export type SerializedLayoutDto = {
 };
 
 export interface BaseElementDto {
-  id: string;
+  id: LayoutElementId;
   type: ElementType;
   name: string;
   layerName: string;
@@ -274,8 +290,8 @@ export interface RouteButtonElementDto extends BaseElementDto {
 export interface ExtendedRouteButtonElementDto extends BaseElementDto {
   type: "extendedroutebutton";
   label: string;
-  fromBlockId: string;
-  toBlockId: string;
+  fromBlockId: LayoutElementId;
+  toBlockId: LayoutElementId;
 }
 
 export interface ClockElementDto extends BaseElementDto {

@@ -42,6 +42,13 @@ import {
   TrackElement as DomainTrackElement,
 } from "@domain/layout/model/TrackElement";
 import {
+  migrateSerializedLayoutIds,
+} from "@domain/layout/layoutIdMigration";
+import type {
+  LayoutElementDto,
+  SerializedLayoutDto,
+} from "@domain/layout/layoutDto";
+import {
   LayerView,
   type LayerId,
 } from "./LayerView";
@@ -68,12 +75,7 @@ export type CheckRoutesResult = {
   error: string | null;
 };
 
-/**
- * Kliensoldali layout-view.
- *
- * A layer/element domain kezelés a common Layoutben él.
- * Itt csak az editor, rajzolás és kliens runtime marad.
- */
+/** Kliensoldali layout-view. */
 export class LayoutView
   extends CommonLayout<BaseElementView, LayerView> {
   constructor() {
@@ -85,8 +87,8 @@ export class LayoutView
     const track =
       new TrackStraightElementView(10, 10);
 
-    track.id = "track1";
-    this.track.elements.push(track);
+    // addElement owns ID allocation. Do not manufacture IDs in view classes.
+    this.addElement(track, "track");
   }
 
   override removeElement(
@@ -211,22 +213,30 @@ export class LayoutView
     selectedBlock.locoAddress = loco.address;
   }
 
-  static fromJSON(data: any): LayoutView {
+  static fromJSON(data: unknown): LayoutView {
+    const migration =
+      migrateSerializedLayoutIds(
+        (data ?? {}) as SerializedLayoutDto
+      );
+
+    const source = migration.layout;
     const layout = new LayoutView();
 
     layout.gridSize =
-      data.gridSize ?? 40;
+      source.gridSize ?? 40;
 
-    if (data._activeLayerId) {
+    if (source._activeLayerId) {
       layout.activeLayerId =
-        data._activeLayerId;
+        source._activeLayerId as LayerId;
     }
 
-    if (!Array.isArray(data.layers)) {
+    if (!Array.isArray(source.layers)) {
       return layout;
     }
 
-    for (const layerData of data.layers) {
+    for (const layerData of source.layers) {
+      if (!layerData.id) continue;
+
       const layer =
         layout.getLayer(layerData.id as LayerId);
 
@@ -245,9 +255,13 @@ export class LayoutView
 
       layer.elements =
         ElementFactory.createMany(
-          layerData.elements ?? []
+          (layerData.elements ?? []) as LayoutElementDto[]
         );
     }
+
+    // The raw migration guarantees stable unique IDs. Rebuild synchronizes the
+    // allocator so every subsequently added/cloned element continues at max+1.
+    layout.rebuildElementIdSequence();
 
     return layout;
   }
@@ -333,14 +347,10 @@ export class LayoutView
     obj.isVisited = true;
     obj.isRoute = true;
 
-    const nextPosition =
-      obj.getNextItemXy();
+    const nextPosition = obj.getNextItemXy();
+    const prevPosition = obj.getPrevItemXy();
 
-    const prevPosition =
-      obj.getPrevItemXy();
-
-    const next =
-      this.getObjectXy(nextPosition) as LayoutTrackElement;
+    const next = this.getObjectXy(nextPosition) as LayoutTrackElement;
 
     if (
       next &&
@@ -354,8 +364,7 @@ export class LayoutView
       this.startWalk(next);
     }
 
-    const prev =
-      this.getObjectXy(prevPosition) as LayoutTrackElement;
+    const prev = this.getObjectXy(prevPosition) as LayoutTrackElement;
 
     if (
       prev &&
@@ -378,14 +387,10 @@ export class LayoutView
     obj.isRoute = true;
     obj.section = section;
 
-    const nextPosition =
-      obj.getNextItemXy();
+    const nextPosition = obj.getNextItemXy();
+    const prevPosition = obj.getPrevItemXy();
 
-    const prevPosition =
-      obj.getPrevItemXy();
-
-    const next =
-      this.getObjectXy(nextPosition) as LayoutTrackElement;
+    const next = this.getObjectXy(nextPosition) as LayoutTrackElement;
 
     if (
       next &&
@@ -400,8 +405,7 @@ export class LayoutView
       this.walkTrack(next, section);
     }
 
-    const prev =
-      this.getObjectXy(prevPosition) as LayoutTrackElement;
+    const prev = this.getObjectXy(prevPosition) as LayoutTrackElement;
 
     if (
       prev &&

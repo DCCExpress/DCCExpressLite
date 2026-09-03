@@ -496,7 +496,7 @@ export default function TrackCanvas({
       currentCursor,
       layout,
       settings,
-      dragRef.current.elementId ?? undefined,
+      dragRef.current.elementId ?? 0,
       selectedElement ?? undefined,
       getSelectionRect(selectionRef.current),
       turnoutSelectionMode,

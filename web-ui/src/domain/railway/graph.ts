@@ -1,4 +1,4 @@
-
+import type { LayoutElementId } from "../layout/layoutDto.js";
 import type { TravelDirection } from "./topology.js";
 
 export type TurnoutStateRequirement = {
@@ -7,19 +7,19 @@ export type TurnoutStateRequirement = {
 };
 
 export type SectionDetector = {
-  id: string;
+  id: LayoutElementId;
   address: number;
   label: string;
 };
 
 export type SectionSignal = {
-  id: string;
+  id: LayoutElementId;
   address: number;
   label: string;
 };
 
 export type SectionBlock = {
-  id: string;
+  id: LayoutElementId;
   name: string;
   trackName: string;
   label: string;
@@ -33,15 +33,8 @@ export type RouteSolution = {
 };
 
 export type BlockRoutePathItem =
-  | {
-    type: "block";
-    block: SectionBlock;
-    node: GraphNode;
-  }
-  | {
-    type: "segment";
-    node: GraphNode;
-  };
+  | { type: "block"; block: SectionBlock; node: GraphNode }
+  | { type: "segment"; node: GraphNode };
 
 export type BlockRouteSolution = RouteSolution & {
   fromBlock: SectionBlock;
@@ -55,11 +48,7 @@ export type RunnableBlockRoute = {
   solution: BlockRouteSolution;
 };
 
-export type RunnableBlockTransition = {
-  fromBlock: SectionBlock;
-  toBlock: SectionBlock;
-  solution: BlockRouteSolution;
-};
+export type RunnableBlockTransition = RunnableBlockRoute;
 
 export class GraphNode {
   name = "";
@@ -67,16 +56,11 @@ export class GraphNode {
   x = 0;
   y = 0;
   isVirtual = false;
-
-  /**
-   * Ez később a szerveroldali route foglalásnál kell majd.
-   */
   busy = false;
-
   detectors: SectionDetector[] = [];
   signals: SectionSignal[] = [];
   blocks: SectionBlock[] = [];
-  elementIds: string[] = [];
+  elementIds: LayoutElementId[] = [];
 
   constructor(
     name: string,
@@ -86,7 +70,7 @@ export class GraphNode {
     detectors: SectionDetector[] = [],
     signals: SectionSignal[] = [],
     blocks: SectionBlock[] = [],
-    elementIds: string[] = []
+    elementIds: LayoutElementId[] = []
   ) {
     this.name = name;
     this.trackName = trackName;
@@ -105,8 +89,10 @@ export class Edge {
     public to: GraphNode,
     public turnoutStates: TurnoutStateRequirement[] = [],
     public locoDirection: TravelDirection = "unknown"
-  ) { }
+  ) {}
 }
+
+type TurnoutRequirementMap = Map<number, boolean>;
 
 export class Graph {
   nodes: GraphNode[] = [];
@@ -122,169 +108,89 @@ export class Graph {
     return edge;
   }
 
-  private mergeLocoDirection(
-    current: TravelDirection,
-    next: TravelDirection
-  ): TravelDirection | null {
-    if (current === "unknown") {
-      return next;
-    }
-
-    if (next === "unknown") {
-      return current;
-    }
-
-    if (current === next) {
-      return current;
-    }
-
-    /**
-     * Egy útvonalon belül nem fordítjuk meg menet közben a mozdonyt.
-     */
+  private mergeLocoDirection(current: TravelDirection, next: TravelDirection): TravelDirection | null {
+    if (current === "unknown") return next;
+    if (next === "unknown") return current;
+    if (current === next) return current;
     return null;
   }
 
   private mergeTurnoutRequirements(
-    current: Map<number, boolean>,
+    current: TurnoutRequirementMap,
     edgeRequirements: TurnoutStateRequirement[]
-  ): Map<number, boolean> | null {
+  ): TurnoutRequirementMap | null {
     const merged = new Map(current);
 
     for (const requirement of edgeRequirements) {
       const existing = merged.get(requirement.address);
-
-      if (
-        existing !== undefined &&
-        existing !== requirement.closed
-      ) {
-        return null;
-      }
-
+      if (existing !== undefined && existing !== requirement.closed) return null;
       merged.set(requirement.address, requirement.closed);
     }
 
     return merged;
   }
 
-  private turnoutRequirementMapToArray(
-    requirements: Map<number, boolean>
-  ): TurnoutStateRequirement[] {
+  private turnoutRequirementMapToArray(requirements: TurnoutRequirementMap): TurnoutStateRequirement[] {
     return [...requirements.entries()]
-      .sort(([addressA], [addressB]) => addressA - addressB)
-      .map(([address, closed]) => ({
-        address,
-        closed,
-      }));
+      .sort(([a], [b]) => a - b)
+      .map(([address, closed]) => ({ address, closed }));
   }
 
   private createRouteVisitedKey(
     node: GraphNode,
-    requirements: Map<number, boolean>,
+    requirements: TurnoutRequirementMap,
     locoDirection: TravelDirection
   ): string {
-    const turnoutKey = [...requirements.entries()]
-      .sort(([addressA], [addressB]) => addressA - addressB)
-      .map(
-        ([address, closed]) =>
-          `${address}:${closed ? "C" : "T"}`
-      )
+    const turnoutPart = this.turnoutRequirementMapToArray(requirements)
+      .map(item => `${item.address}:${item.closed ? "C" : "T"}`)
       .join("|");
-
-    return `${node.name}__${turnoutKey}__${locoDirection}`;
+    return `${node.name}__${turnoutPart}__${locoDirection}`;
   }
 
-  findRoute(
-    fromNodeName: string,
-    toNodeName: string
-  ): RouteSolution | null {
-    const fromNode = this.nodes.find(
-      node => node.name === fromNodeName
-    );
-
-    const toNode = this.nodes.find(
-      node => node.name === toNodeName
-    );
-
-    if (!fromNode || !toNode) {
-      return null;
-    }
+  findRoute(fromNodeName: string, toNodeName: string): RouteSolution | null {
+    const fromNode = this.nodes.find(node => node.name === fromNodeName);
+    const toNode = this.nodes.find(node => node.name === toNodeName);
+    if (!fromNode || !toNode) return null;
 
     if (fromNode === toNode) {
-      return {
-        nodes: [fromNode],
-        edges: [],
-        turnoutStates: [],
-        locoDirection: "unknown",
-      };
+      return { nodes: [fromNode], edges: [], turnoutStates: [], locoDirection: "unknown" };
     }
 
     type SearchState = {
       node: GraphNode;
       nodes: GraphNode[];
       edges: Edge[];
-      requirements: Map<number, boolean>;
+      requirements: TurnoutRequirementMap;
       locoDirection: TravelDirection;
     };
 
-    const queue: SearchState[] = [
-      {
-        node: fromNode,
-        nodes: [fromNode],
-        edges: [],
-        requirements: new Map<number, boolean>(),
-        locoDirection: "unknown",
-      },
-    ];
-
+    const queue: SearchState[] = [{
+      node: fromNode,
+      nodes: [fromNode],
+      edges: [],
+      requirements: new Map(),
+      locoDirection: "unknown",
+    }];
     const visited = new Set<string>();
 
     while (queue.length > 0) {
       const current = queue.shift()!;
-
-      const currentKey = this.createRouteVisitedKey(
-        current.node,
-        current.requirements,
-        current.locoDirection
-      );
-
-      if (visited.has(currentKey)) {
-        continue;
-      }
-
+      const currentKey = this.createRouteVisitedKey(current.node, current.requirements, current.locoDirection);
+      if (visited.has(currentKey)) continue;
       visited.add(currentKey);
 
-      const outgoingEdges = this.edges.filter(
-        edge => edge.from === current.node
-      );
-
-      for (const edge of outgoingEdges) {
-        const mergedRequirements =
-          this.mergeTurnoutRequirements(
-            current.requirements,
-            edge.turnoutStates
-          );
-
-        const mergedLocoDirection =
-          this.mergeLocoDirection(
-            current.locoDirection,
-            edge.locoDirection
-          );
-
-        if (!mergedRequirements || !mergedLocoDirection) {
-          continue;
-        }
+      for (const edge of this.edges.filter(candidate => candidate.from === current.node)) {
+        const mergedRequirements = this.mergeTurnoutRequirements(current.requirements, edge.turnoutStates);
+        const mergedLocoDirection = this.mergeLocoDirection(current.locoDirection, edge.locoDirection);
+        if (!mergedRequirements || !mergedLocoDirection) continue;
 
         const nextNodes = [...current.nodes, edge.to];
         const nextEdges = [...current.edges, edge];
-
         if (edge.to === toNode) {
           return {
             nodes: nextNodes,
             edges: nextEdges,
-            turnoutStates:
-              this.turnoutRequirementMapToArray(
-                mergedRequirements
-              ),
+            turnoutStates: this.turnoutRequirementMapToArray(mergedRequirements),
             locoDirection: mergedLocoDirection,
           };
         }
@@ -298,209 +204,78 @@ export class Graph {
         });
       }
     }
-
     return null;
   }
 
-  findNodeContainingBlock(
-    blockId: string
-  ): GraphNode | null {
-    return (
-      this.nodes.find(node =>
-        node.blocks.some(block => block.id === blockId)
-      ) ?? null
-    );
+  findNodeContainingBlock(blockId: LayoutElementId): GraphNode | null {
+    return this.nodes.find(node => node.blocks.some(block => block.id === blockId)) ?? null;
   }
 
-  findBlockById(
-    blockId: string
-  ): SectionBlock | null {
+  findBlockById(blockId: LayoutElementId): SectionBlock | null {
     for (const node of this.nodes) {
-      const block = node.blocks.find(
-        block => block.id === blockId
-      );
-
-      if (block) {
-        return block;
-      }
+      const block = node.blocks.find(item => item.id === blockId);
+      if (block) return block;
     }
-
     return null;
   }
 
-  findBlockByName(
-    blockName: string
-  ): SectionBlock | null {
+  findBlockByName(blockName: string): SectionBlock | null {
     const normalized = blockName.trim();
-
     for (const node of this.nodes) {
-      const block = node.blocks.find(
-        block => block.name === normalized
-      );
-
-      if (block) {
-        return block;
-      }
+      const block = node.blocks.find(item => item.name === normalized);
+      if (block) return block;
     }
-
     return null;
   }
 
-  findRouteBetweenBlocks(
-    fromBlockId: string,
-    toBlockId: string
-  ): BlockRouteSolution | null {
-    const fromNode =
-      this.findNodeContainingBlock(fromBlockId);
+  findRouteBetweenBlocks(fromBlockId: LayoutElementId, toBlockId: LayoutElementId): BlockRouteSolution | null {
+    const fromNode = this.findNodeContainingBlock(fromBlockId);
+    const toNode = this.findNodeContainingBlock(toBlockId);
+    const fromBlock = this.findBlockById(fromBlockId);
+    const toBlock = this.findBlockById(toBlockId);
+    if (!fromNode || !toNode || !fromBlock || !toBlock) return null;
 
-    const toNode =
-      this.findNodeContainingBlock(toBlockId);
+    const segmentRoute = this.findRoute(fromNode.name, toNode.name);
+    if (!segmentRoute) return null;
 
-    const fromBlock =
-      this.findBlockById(fromBlockId);
-
-    const toBlock =
-      this.findBlockById(toBlockId);
-
-    if (!fromNode || !toNode || !fromBlock || !toBlock) {
-      return null;
-    }
-
-    const segmentRoute = this.findRoute(
-      fromNode.name,
-      toNode.name
-    );
-
-    if (!segmentRoute) {
-      return null;
-    }
-
-    const path: BlockRoutePathItem[] = [
-      {
-        type: "block",
-        block: fromBlock,
-        node: fromNode,
-      },
-    ];
-
+    const path: BlockRoutePathItem[] = [{ type: "block", block: fromBlock, node: fromNode }];
     for (const node of segmentRoute.nodes) {
-      path.push({
-        type: "segment",
-        node,
-      });
-
+      path.push({ type: "segment", node });
       for (const block of node.blocks) {
-        const isFromBlock =
-          block.id === fromBlock.id;
-
-        const isToBlock =
-          block.id === toBlock.id;
-
-        if (isFromBlock || isToBlock) {
-          continue;
-        }
-
-        path.push({
-          type: "block",
-          block,
-          node,
-        });
+        if (block.id === fromBlock.id || block.id === toBlock.id) continue;
+        path.push({ type: "block", block, node });
       }
     }
+    path.push({ type: "block", block: toBlock, node: toNode });
 
-    path.push({
-      type: "block",
-      block: toBlock,
-      node: toNode,
-    });
-
-    return {
-      ...segmentRoute,
-      fromBlock,
-      toBlock,
-      path,
-    };
+    return { ...segmentRoute, fromBlock, toBlock, path };
   }
 
-  findRouteBetweenBlockNames(
-    fromBlockName: string,
-    toBlockName: string
-  ): BlockRouteSolution | null {
+  findRouteBetweenBlockNames(fromBlockName: string, toBlockName: string): BlockRouteSolution | null {
     const fromBlock = this.findBlockByName(fromBlockName);
     const toBlock = this.findBlockByName(toBlockName);
-
-    if (!fromBlock || !toBlock) {
-      return null;
-    }
-
-    return this.findRouteBetweenBlocks(
-      fromBlock.id,
-      toBlock.id
-    );
+    if (!fromBlock || !toBlock) return null;
+    return this.findRouteBetweenBlocks(fromBlock.id, toBlock.id);
   }
 
   getRunnableBlockRoutes(): RunnableBlockRoute[] {
     const result: RunnableBlockRoute[] = [];
-
     const blocks = this.nodes.flatMap(node => node.blocks);
-
     for (const fromBlock of blocks) {
       for (const toBlock of blocks) {
-        if (fromBlock.id === toBlock.id) {
-          continue;
-        }
-
-        const solution = this.findRouteBetweenBlocks(
-          fromBlock.id,
-          toBlock.id
-        );
-
-        if (!solution) {
-          continue;
-        }
-
-        result.push({
-          fromBlock,
-          toBlock,
-          solution,
-        });
+        if (fromBlock.id === toBlock.id) continue;
+        const solution = this.findRouteBetweenBlocks(fromBlock.id, toBlock.id);
+        if (solution) result.push({ fromBlock, toBlock, solution });
       }
     }
-
     return result;
   }
 
   getRunnableBlockTransitions(): RunnableBlockTransition[] {
-    const result: RunnableBlockTransition[] = [];
-
-    const routes = this.getRunnableBlockRoutes();
-
-    for (const route of routes) {
+    return this.getRunnableBlockRoutes().filter(route => {
       const solution = route.solution;
-
-      if (solution.nodes.length < 2) {
-        continue;
-      }
-
-      const intermediateNodes =
-        solution.nodes.slice(1, -1);
-
-      const hasIntermediateBlock =
-        intermediateNodes.some(
-          node => node.blocks.length > 0
-        );
-
-      if (hasIntermediateBlock) {
-        continue;
-      }
-
-      result.push({
-        fromBlock: route.fromBlock,
-        toBlock: route.toBlock,
-        solution,
-      });
-    }
-
-    return result;
+      if (solution.nodes.length < 2) return false;
+      return !solution.nodes.slice(1, -1).some(node => node.blocks.length > 0);
+    });
   }
 }

@@ -1,17 +1,14 @@
-
+import type { LayoutElementId } from "../layout/layoutDto.js";
 import type {
   SectionBlock,
   SectionDetector,
   SectionSignal,
   TurnoutStateRequirement,
 } from "./graph.js";
-
-import type {
-  TravelDirection,
-} from "./topology.js";
+import type { TravelDirection } from "./topology.js";
 
 export type RouteGraphTrackRuntimeDto = {
-  id: string;
+  id: LayoutElementId;
   section: number;
   travelDirection: TravelDirection;
 };
@@ -23,11 +20,10 @@ export type RouteGraphNodeDto = {
   y: number;
   isVirtual: boolean;
   busy: boolean;
-
   detectors: SectionDetector[];
   signals: SectionSignal[];
   blocks: SectionBlock[];
-  elementIds: string[];
+  elementIds: LayoutElementId[];
 };
 
 export type RouteGraphEdgeDto = {
@@ -44,10 +40,5 @@ export type RouteGraphDto = {
   trackRuntime: RouteGraphTrackRuntimeDto[];
 };
 
-export type RouteGraphNotReadyDto = {
-  ready: false;
-};
-
-export type RouteGraphResponseDto =
-  | RouteGraphDto
-  | RouteGraphNotReadyDto;
+export type RouteGraphNotReadyDto = { ready: false };
+export type RouteGraphResponseDto = RouteGraphDto | RouteGraphNotReadyDto;

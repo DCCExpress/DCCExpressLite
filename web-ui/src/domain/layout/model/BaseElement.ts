@@ -1,4 +1,3 @@
-
 import { getDirectionXy } from "../../helpers.js";
 import {
   type IRect,
@@ -10,16 +9,44 @@ import {
 } from "../elementTypes.js";
 import type {
   BaseElementDto,
+  LayoutElementId,
   RotationStepDto,
+} from "../layoutDto.js";
+import {
+  INVALID_LAYOUT_ELEMENT_ID,
+  MAX_LAYOUT_ELEMENT_ID,
 } from "../layoutDto.js";
 
 export type NeighborPointPair = [Point, Point];
 
-/**
- * Grafikamentes, szerveroldalon is használható layout elem alap.
- */
+function normalizeAssignedId(value: number | string): LayoutElementId {
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= MAX_LAYOUT_ELEMENT_ID
+  ) {
+    return value;
+  }
+
+  // Old clone() implementations still assign generateId() strings. Those are
+  // deliberately treated as "unassigned" so Layout.addElement() can issue the
+  // next stable uint16 ID. Legacy persisted UUIDs are migrated before fromJSON.
+  return INVALID_LAYOUT_ELEMENT_ID;
+}
+
+/** Grafikamentes, szerveroldalon is használható layout elem alap. */
 export abstract class BaseElement {
-  id: string = "";
+  private _id: LayoutElementId = INVALID_LAYOUT_ELEMENT_ID;
+
+  get id(): LayoutElementId {
+    return this._id;
+  }
+
+  set id(value: LayoutElementId | string) {
+    this._id = normalizeAssignedId(value);
+  }
+
   type: ElementType = ELEMENT_TYPES.GENERAL;
   name: string = "element";
   layerName: string = "track";
@@ -40,14 +67,6 @@ export abstract class BaseElement {
   isVisited: boolean = false;
   trackName: string = "";
 
-  /**
-   * Public konstruktor kell ahhoz, hogy a kliensoldali
-   * BaseElement is ugyanazt a BaseElementViewMixin(...) ágat
-   * használhassa, mint a common domainből leszármazó View elemek.
-   *
-   * Maga az osztály továbbra is abstract, tehát közvetlenül
-   * továbbra sem példányosítható.
-   */
   constructor(x: number, y: number) {
     this.x = x;
     this.y = y;
@@ -108,12 +127,7 @@ export abstract class BaseElement {
   }
 
   getBounds(): IRect {
-    return {
-      x: this.x,
-      y: this.y,
-      width: this.w,
-      height: this.h,
-    };
+    return { x: this.x, y: this.y, width: this.w, height: this.h };
   }
 
   getCollisionBounds(): IRect {
@@ -124,13 +138,7 @@ export abstract class BaseElement {
     const bounds = this.getBounds();
     const x2 = bounds.x + bounds.width;
     const y2 = bounds.y + bounds.height;
-
-    return (
-      px >= bounds.x &&
-      py >= bounds.y &&
-      px < x2 &&
-      py < y2
-    );
+    return px >= bounds.x && py >= bounds.y && px < x2 && py < y2;
   }
 
   get pos(): Point {
@@ -146,12 +154,7 @@ export abstract class BaseElement {
   }
 
   getNeighborPointPairs(): NeighborPointPair[] {
-    return [
-      [
-        this.getPrevItemXy(),
-        this.getNextItemXy(),
-      ],
-    ];
+    return [[this.getPrevItemXy(), this.getNextItemXy()]];
   }
 
   getNeigbordsXy(): Point[] {
