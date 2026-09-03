@@ -55,6 +55,7 @@ export class TrackSignalElement extends TrackElement {
       createDefaultSignalOutputConfiguration(1, 2);
 
   currentStateIndex = 0;
+  private dccFeedbackOutputs: ReturnType<typeof resizeDccOutputs> | null = null;
 
   lightsAll = false;
   showAddress = false;
@@ -182,17 +183,21 @@ export class TrackSignalElement extends TrackElement {
     ) {
       this.currentStateIndex = 0;
     }
+
+    this.syncDccFeedbackFromCurrentState();
   }
 
   setCurrentStateIndex(index: number): void {
     if (this.stateCount <= 0) {
       this.currentStateIndex = 0;
+      this.syncDccFeedbackFromCurrentState();
       return;
     }
 
     this.currentStateIndex =
       ((Math.trunc(index) % this.stateCount) + this.stateCount) %
       this.stateCount;
+    this.syncDccFeedbackFromCurrentState();
   }
 
   setCurrentStateById(stateId: string): void {
@@ -201,7 +206,7 @@ export class TrackSignalElement extends TrackElement {
     );
 
     if (index >= 0) {
-      this.currentStateIndex = index;
+      this.setCurrentStateIndex(index);
     }
   }
 
@@ -236,6 +241,18 @@ export class TrackSignalElement extends TrackElement {
           ? result | (1 << index)
           : result,
       0
+    );
+  }
+
+  private syncDccFeedbackFromCurrentState(): void {
+    if (this.signalOutput.protocol !== "dcc") {
+      this.dccFeedbackOutputs = null;
+      return;
+    }
+
+    this.dccFeedbackOutputs = resizeDccOutputs(
+      this.currentState?.dccOutputs ?? [],
+      this.signalOutput.outputCount
     );
   }
 
@@ -417,12 +434,15 @@ export class TrackSignalElement extends TrackElement {
       address - this.signalOutput.address;
 
     const currentOutputs = resizeDccOutputs(
-      this.currentState?.dccOutputs ?? [],
+      this.dccFeedbackOutputs ??
+        this.currentState?.dccOutputs ??
+        [],
       this.signalOutput.outputCount
     );
 
     currentOutputs[outputIndex] =
       active ? "G" : "R";
+    this.dccFeedbackOutputs = currentOutputs;
 
     const matchedIndex =
       this.signalOutput.states.findIndex(state => {

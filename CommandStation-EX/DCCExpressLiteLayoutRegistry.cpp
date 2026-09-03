@@ -270,8 +270,7 @@ void indexElement(JsonObjectConst element, uint16_t id)
     endpoint.extended = extended;
     endpoint.outputCount = static_cast<uint8_t>(outputs);
 
-    const char *modeText = element["outputMode"] | "accessory";
-    if (!extended && strcmp(modeText, "vpin"))
+    if (!extended)
     {
       for (int channel = 0; channel < outputs; ++channel)
       {

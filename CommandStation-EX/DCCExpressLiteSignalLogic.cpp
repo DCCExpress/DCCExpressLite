@@ -68,8 +68,8 @@ bool evaluationPending = false;
 uint32_t lastSensorPollAtMs = 0;
 
 DCCExpressLiteSignalLogic::TurnoutStateReader readTurnout = nullptr;
-DCCExpressLiteSignalLogic::VpinStateReader readVpin = nullptr;
 DCCExpressLiteSignalLogic::OutputWriter writeOutput = nullptr;
+DCCExpressLiteSignalLogic::AspectWriter writeAspect = nullptr;
 
 void resetConfiguration()
 {
@@ -113,12 +113,7 @@ int8_t readTurnoutLogicalState(const Condition &condition)
   DCCExpressLiteLayoutRegistry::TurnoutEndpoint endpoint;
   if (!DCCExpressLiteLayoutRegistry::getTurnout(condition.id, condition.channel, endpoint)) return -1;
 
-  int8_t physical = -1;
-  if (endpoint.mode == DCCExpressLiteLayoutRegistry::OutputMode::Vpin)
-    physical = readVpin ? readVpin(endpoint.address) : -1;
-  else
-    physical = readTurnout ? readTurnout(endpoint.address) : -1;
-
+  const int8_t physical = readTurnout ? readTurnout(endpoint.address) : -1;
   if (physical < 0) return -1;
   const bool logicalClosed = (physical != 0) == endpoint.closedValue;
   return logicalClosed ? 1 : 0;
@@ -189,7 +184,8 @@ void processOneOutput()
     if (signal.extended)
     {
       Serial.printf("Signal logic: <A %u %u> id=%u\n", endpoint.address, signal.desiredValue, signal.id);
-      DCC::setExtendedAccessory(static_cast<int16_t>(endpoint.address), static_cast<int16_t>(signal.desiredValue));
+      if (writeAspect) writeAspect(endpoint.address, static_cast<uint8_t>(signal.desiredValue));
+      else DCC::setExtendedAccessory(static_cast<int16_t>(endpoint.address), static_cast<int16_t>(signal.desiredValue));
       signal.lastValue = signal.desiredValue;
       signal.lastValueValid = true;
       signal.outputPending = false;
@@ -200,7 +196,7 @@ void processOneOutput()
     const uint8_t bit = signal.outputIndex;
     const bool active = ((signal.desiredValue >> bit) & 1U) != 0;
     Serial.printf("Signal logic: <a %u %u> id=%u\n", endpoint.address + bit, active ? 1 : 0, signal.id);
-    writeOutput(endpoint.address + bit, active, false);
+    writeOutput(endpoint.address + bit, active);
     ++signal.outputIndex;
     if (signal.outputIndex >= signal.outputCount)
     {
@@ -509,12 +505,12 @@ bool ensureRulesFile()
 
 void DCCExpressLiteSignalLogic::begin(
   TurnoutStateReader turnoutReader,
-  VpinStateReader vpinReader,
-  OutputWriter outputWriter)
+  OutputWriter outputWriter,
+  AspectWriter aspectWriter)
 {
   readTurnout = turnoutReader;
-  readVpin = vpinReader;
   writeOutput = outputWriter;
+  writeAspect = aspectWriter;
   if (!ensureRulesFile()) Serial.println(F("Signal logic: could not create rules file."));
   DCCExpressLiteSignalLogicApi::begin();
   reload();

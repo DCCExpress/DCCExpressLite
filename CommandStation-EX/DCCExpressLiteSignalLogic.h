@@ -6,13 +6,13 @@ class DCCExpressLiteSignalLogic
 {
 public:
   using TurnoutStateReader = int8_t (*)(uint16_t address);
-  using VpinStateReader = int8_t (*)(uint16_t vpin);
-  using OutputWriter = void (*)(uint16_t address, bool active, bool vpin);
+  using OutputWriter = void (*)(uint16_t address, bool active);
+  using AspectWriter = void (*)(uint16_t address, uint8_t aspect);
 
   static void begin(
     TurnoutStateReader turnoutReader,
-    VpinStateReader vpinReader,
-    OutputWriter outputWriter);
+    OutputWriter outputWriter,
+    AspectWriter aspectWriter);
 
   static void loop();
   static bool reload();

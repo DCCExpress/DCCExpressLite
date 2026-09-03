@@ -516,14 +516,6 @@ static void cacheVpinState(uint16_t vpin, bool active)
   entry->state = active ? 1 : 0;
 }
 
-static int8_t readVpinStateForSignalLogic(uint16_t vpin)
-{
-  VpinStateCacheEntry *entry = findVpinState(vpin);
-  if (entry) return entry->state;
-  const int value = IODevice::read(vpin);
-  return value < 0 ? -1 : (value != 0 ? 1 : 0);
-}
-
 static void writeVpinState(uint16_t vpin, bool active, bool reevaluateSignalLogic = true)
 {
   if (vpin < 1 || vpin > 32767) return;
@@ -534,10 +526,18 @@ static void writeVpinState(uint16_t vpin, bool active, bool reevaluateSignalLogi
     DCCExpressLiteSignalLogic::forceEvaluate();
 }
 
-static void writeSignalOutput(uint16_t address, bool active, bool vpin)
+static void writeSignalOutput(uint16_t address, bool active)
 {
-  if (vpin) writeVpinState(address, active, false);
-  else writeBasicAccessoryState(address, active);
+  writeBasicAccessoryState(address, active);
+}
+
+static void writeSignalAspect(uint16_t address, uint8_t aspect)
+{
+  if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS) return;
+  dccParseRaw("<A " + String(address) + " " + String(aspect) + ">");
+  broadcastMessage("signalAspectChanged",
+    "{\"address\":" + String(address) +
+    ",\"aspect\":" + String(aspect) + "}");
 }
 
 static SensorStateGroup *findSensorStateGroup(uint16_t baseAddress)
@@ -1915,8 +1915,8 @@ void setupHTTPServer()
   loadLocoConfiguration();
   DCCExpressLiteSignalLogic::begin(
     readTurnoutStateForSignalLogic,
-    readVpinStateForSignalLogic,
-    writeSignalOutput);
+    writeSignalOutput,
+    writeSignalAspect);
   dccParseRaw("<Q>");
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
