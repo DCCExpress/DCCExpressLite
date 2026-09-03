@@ -321,8 +321,10 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
             <Badge color={runtime.running ? "green" : "gray"} variant="light">
               {runtime.running ? "RUNNING" : "STOPPED"}
             </Badge>
-            <Switch checked={runtime.enabled} label="Enabled" onChange={event =>
-              setRuntime(current => ({ ...current, enabled: event.currentTarget.checked ?? false}))} />
+            <Switch checked={runtime.enabled} label="Enabled" onChange={event => {
+              const { checked } = event.currentTarget;
+              setRuntime(current => ({ ...current, enabled: checked }));
+            }} />
             <ActionIcon variant="light" title="Reload" onClick={() => void load()}><IconRefresh size={16} /></ActionIcon>
             <Button size="xs" leftSection={<IconDeviceFloppy size={16} />} loading={saving} disabled={hasErrors} onClick={() => void save()}>
               Save
@@ -354,15 +356,15 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                   const selected = group.id === selectedGroup?.id;
                   const selectedCardProps = selected
                     ? {
-                        bg: "lime.0" as const,
-                        style: {
-                          cursor: "pointer",
-                          borderColor: "var(--mantine-color-lime-6)",
-                        },
-                      }
+                      bg: "lime.0" as const,
+                      style: {
+                        cursor: "pointer",
+                        borderColor: "var(--mantine-color-lime-6)",
+                      },
+                    }
                     : {
-                        style: { cursor: "pointer" },
-                      };
+                      style: { cursor: "pointer" },
+                    };
                   return (
                     <Card
                       key={group.id}
@@ -517,7 +519,7 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                               onClick={() => updateRule(selectedGroup.id, rule.id, current => ({
                                 ...current,
                                 conditions: [...current.conditions,
-                                  turnoutOptions[0] ? newTurnoutCondition(turnoutOptions[0]) : newSensorCondition(sensorOptions[0]!)],
+                                turnoutOptions[0] ? newTurnoutCondition(turnoutOptions[0]) : newSensorCondition(sensorOptions[0]!)],
                               }))}
                             >
                               Add condition
