@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <stdlib.h>
 
 namespace
 {
@@ -25,12 +26,65 @@ struct TurnoutState
   bool closed = false;
 };
 
-BlockState blocks[MAX_BLOCK_STATES];
-TurnoutState turnouts[MAX_TURNOUT_STATES];
+BlockState *blocks = nullptr;
+TurnoutState *turnouts = nullptr;
 uint8_t loadedBlockCount = 0;
 uint8_t loadedTurnoutCount = 0;
+uint8_t blockCapacity = 0;
+uint8_t turnoutCapacity = 0;
 bool savePending = false;
 uint32_t changedAtMs = 0;
+
+bool ensureBlockCapacity(uint8_t required)
+{
+  if (required <= blockCapacity) return true;
+  if (required > MAX_BLOCK_STATES) return false;
+
+  uint8_t next = blockCapacity ? blockCapacity : 4;
+  while (next < required)
+  {
+    const uint16_t doubled = static_cast<uint16_t>(next) * 2;
+    next = static_cast<uint8_t>(doubled > MAX_BLOCK_STATES ? MAX_BLOCK_STATES : doubled);
+  }
+
+  void *memory = realloc(blocks, static_cast<size_t>(next) * sizeof(BlockState));
+  if (!memory) return false;
+  blocks = static_cast<BlockState *>(memory);
+  blockCapacity = next;
+  return true;
+}
+
+bool ensureTurnoutCapacity(uint8_t required)
+{
+  if (required <= turnoutCapacity) return true;
+  if (required > MAX_TURNOUT_STATES) return false;
+
+  uint8_t next = turnoutCapacity ? turnoutCapacity : 4;
+  while (next < required)
+  {
+    const uint16_t doubled = static_cast<uint16_t>(next) * 2;
+    next = static_cast<uint8_t>(doubled > MAX_TURNOUT_STATES ? MAX_TURNOUT_STATES : doubled);
+  }
+
+  void *memory = realloc(turnouts, static_cast<size_t>(next) * sizeof(TurnoutState));
+  if (!memory) return false;
+  turnouts = static_cast<TurnoutState *>(memory);
+  turnoutCapacity = next;
+  return true;
+}
+
+void clearLoadedState()
+{
+  free(blocks);
+  blocks = nullptr;
+  loadedBlockCount = 0;
+  blockCapacity = 0;
+
+  free(turnouts);
+  turnouts = nullptr;
+  loadedTurnoutCount = 0;
+  turnoutCapacity = 0;
+}
 
 String escapeJsonText(const char *input)
 {
@@ -63,7 +117,7 @@ void removeBlockAt(uint8_t index)
   if (index >= loadedBlockCount) return;
   for (uint8_t i = index + 1; i < loadedBlockCount; ++i)
     blocks[i - 1] = blocks[i];
-  blocks[--loadedBlockCount] = BlockState{};
+  --loadedBlockCount;
 }
 
 int findTurnout(uint16_t address)
@@ -123,10 +177,7 @@ bool saveState()
 
 void loadState()
 {
-  for (BlockState &state : blocks) state = BlockState{};
-  for (TurnoutState &state : turnouts) state = TurnoutState{};
-  loadedBlockCount = 0;
-  loadedTurnoutCount = 0;
+  clearLoadedState();
 
   File file = LittleFS.open(STATE_PATH, "r");
   if (!file) return;
@@ -145,7 +196,9 @@ void loadState()
     const char *blockId = source["blockId"] | "";
     const int locoAddress = source["locoAddress"] | 0;
     if (!blockId[0] || locoAddress < 1 || locoAddress > 10239) continue;
+    if (!ensureBlockCapacity(loadedBlockCount + 1)) break;
     BlockState &target = blocks[loadedBlockCount++];
+    target = BlockState{};
     strlcpy(target.blockId, blockId, sizeof(target.blockId));
     target.locoAddress = static_cast<uint16_t>(locoAddress);
   }
@@ -155,6 +208,7 @@ void loadState()
     if (loadedTurnoutCount >= MAX_TURNOUT_STATES) break;
     const int address = source["address"] | 0;
     if (address < 1 || address > 2048) continue;
+    if (!ensureTurnoutCapacity(loadedTurnoutCount + 1)) break;
     TurnoutState &target = turnouts[loadedTurnoutCount++];
     target.address = static_cast<uint16_t>(address);
     target.closed = source["closed"] | false;
@@ -203,12 +257,14 @@ bool DCCExpressLiteRuntimeState::setBlock(const char *blockId, uint16_t locoAddr
   for (int i = loadedBlockCount - 1; i >= 0; --i)
   {
     if (!strcmp(blocks[i].blockId, blockId) || blocks[i].locoAddress == locoAddress)
-    {
       removeBlockAt(static_cast<uint8_t>(i));
-    }
   }
-  if (loadedBlockCount >= MAX_BLOCK_STATES) return false;
+
+  if (loadedBlockCount >= MAX_BLOCK_STATES || !ensureBlockCapacity(loadedBlockCount + 1))
+    return false;
+
   BlockState &target = blocks[loadedBlockCount++];
+  target = BlockState{};
   strlcpy(target.blockId, blockId, sizeof(target.blockId));
   target.locoAddress = locoAddress;
   markChanged();
@@ -227,7 +283,6 @@ bool DCCExpressLiteRuntimeState::removeBlock(const char *blockId)
 void DCCExpressLiteRuntimeState::resetBlocks()
 {
   if (!loadedBlockCount) return;
-  for (BlockState &state : blocks) state = BlockState{};
   loadedBlockCount = 0;
   markChanged();
 }
@@ -262,7 +317,11 @@ void DCCExpressLiteRuntimeState::setTurnout(uint16_t address, bool closed)
     markChanged();
     return;
   }
-  if (loadedTurnoutCount >= MAX_TURNOUT_STATES) return;
+
+  if (loadedTurnoutCount >= MAX_TURNOUT_STATES ||
+      !ensureTurnoutCapacity(loadedTurnoutCount + 1))
+    return;
+
   TurnoutState &target = turnouts[loadedTurnoutCount++];
   target.address = address;
   target.closed = closed;
@@ -273,6 +332,19 @@ int8_t DCCExpressLiteRuntimeState::getTurnout(uint16_t address)
 {
   const int index = findTurnout(address);
   return index >= 0 ? (turnouts[index].closed ? 1 : 0) : -1;
+}
+
+uint8_t DCCExpressLiteRuntimeState::turnoutCount()
+{
+  return loadedTurnoutCount;
+}
+
+bool DCCExpressLiteRuntimeState::getTurnoutAt(uint8_t index, uint16_t &address, bool &closed)
+{
+  if (index >= loadedTurnoutCount) return false;
+  address = turnouts[index].address;
+  closed = turnouts[index].closed;
+  return true;
 }
 
 bool DCCExpressLiteRuntimeState::pruneBlocksFromLayout()

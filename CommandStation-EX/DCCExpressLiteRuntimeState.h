@@ -16,6 +16,8 @@ public:
 
   static void setTurnout(uint16_t address, bool closed);
   static int8_t getTurnout(uint16_t address);
+  static uint8_t turnoutCount();
+  static bool getTurnoutAt(uint8_t index, uint16_t &address, bool &closed);
 
   static bool pruneBlocksFromLayout();
 };

@@ -4,8 +4,10 @@
 #include "DCC.h"
 #include "DCCExpressLite.h"
 #include "DCCExpressLiteDeviceConfig.h"
+#include "DCCExpressLiteRuntimeCache.h"
 #include "DCCExpressLiteRuntimeState.h"
 #include "DCCExpressLiteSignalLogic.h"
+#include "LocoSlot.h"
 #include "HTTPSerialWrapper.h"
 #include "HTTPServer.h"
 #include <esp_freertos_hooks.h>
@@ -61,7 +63,8 @@ struct ClientSnapshotState
   bool active = false;
   uint32_t clientId = 0;
   uint8_t stage = 0;
-  int accessoryAddress = 1;
+  uint16_t turnoutSlot = 0;
+  uint16_t accessorySlot = 0;
   uint8_t vpinSlot = 0;
 };
 
@@ -255,7 +258,6 @@ static bool locosUploadOk = false;
 static File deviceConfigUploadFile;
 static bool deviceConfigUploadOk = false;
 static bool deviceConfigUploadTooLarge = false;
-static volatile bool signalLogicReloadPending = false;
 static volatile bool runtimeStatePrunePending = false;
 
 struct ProgrammingRequestState
@@ -272,17 +274,12 @@ struct ProgrammingRequestState
 static ProgrammingRequestState programmingRequest;
 static const unsigned long PROGRAMMING_TIMEOUT_MS = 20000;
 
-static const int MAX_RUNTIME_LOCOS = 32;
-static int locoAddresses[MAX_RUNTIME_LOCOS] = {0};
-static int locoSpeeds[MAX_RUNTIME_LOCOS] = {0};
-static bool locoDirectionsForward[MAX_RUNTIME_LOCOS] = {true};
-static uint32_t locoFunctionBits[MAX_RUNTIME_LOCOS] = {0};
-static int configuredLocoAddresses[MAX_RUNTIME_LOCOS] = {0};
-static bool configuredLocoInverted[MAX_RUNTIME_LOCOS] = {false};
+static LocoConfigCache configuredLocos;
 
 static const int MAX_LINEAR_ACCESSORY_ADDRESS = 2048;
-static int8_t turnoutStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
-static int8_t basicAccessoryStateCache[MAX_LINEAR_ACCESSORY_ADDRESS + 1];
+static AccessoryStateCache turnoutStateCache;
+static AccessoryStateCache basicAccessoryStateCache;
+
 static const uint8_t MAX_VPIN_STATE_CACHE = 96;
 struct VpinStateCacheEntry
 {
@@ -303,7 +300,7 @@ static uint8_t nextSensorReplacementSlot = 0;
 
 static int8_t readTurnoutStateForSignalLogic(uint16_t address)
 {
-  return address <= MAX_LINEAR_ACCESSORY_ADDRESS ? turnoutStateCache[address] : -1;
+  return address <= MAX_LINEAR_ACCESSORY_ADDRESS ? turnoutStateCache.get(address) : -1;
 }
 
 static String escapeJson(const String &input)
@@ -413,10 +410,6 @@ static void broadcastMessage(const char *type, const String &data,
   }
   const String message = makeMessage(type, data, uuid);
 
-  // Telemetry is identical for every client. Use one reference-counted
-  // WebSocket buffer instead of allocating a separate copy per browser.
-  // This keeps periodic status traffic from multiplying heap usage as
-  // clients are added. If any client is already backed up, drop this sample.
   if (droppable)
   {
     if (!ws.availableForWriteAll())
@@ -456,11 +449,7 @@ static void sendError(uint32_t clientId, const String &message, const char *uuid
 
 static void dccParseRaw(const String &raw)
 {
-  if (!raw.length())
-  {
-    return;
-  }
-
+  if (!raw.length()) return;
   std::vector<byte> command(raw.length() + 1);
   raw.getBytes(command.data(), command.size());
   DCCEXParser::parse(&httpCommandStream, command.data(), nullptr);
@@ -470,7 +459,8 @@ static void writeBasicAccessoryState(uint16_t address, bool active)
 {
   if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS) return;
   dccParseRaw("<a " + String(address) + " " + String(active ? 1 : 0) + ">");
-  basicAccessoryStateCache[address] = active ? 1 : 0;
+  if (!basicAccessoryStateCache.set(address, active))
+    Serial.printf("Accessory cache allocation failed for #%u.\n", address);
   broadcastMessage("accessoryChanged", "{\"address\":" + String(address) + ",\"active\":" + String(active ? "true" : "false") + "}");
 }
 
@@ -572,9 +562,6 @@ static void publishSensorState(uint16_t address, bool active, const char *uuid =
     ",\"on\":" + String(active ? "true" : "false") + "}", uuid);
 }
 
-// Accept only state lines with exactly one numeric argument.  DCC-EX also
-// uses <Q ID PIN PULLUP> while dumping sensor definitions; those lines must
-// not be mistaken for an ACTIVE transition.
 static bool parseSensorStateLine(const String &raw, uint16_t &address, bool &active)
 {
   String line = raw;
@@ -877,20 +864,18 @@ static void sendDccExStatus(uint32_t clientId = 0)
     broadcastMessage("dccExStatus", data, nullptr, true);
 }
 
-static void sendAccessorySnapshot(uint32_t clientId, int address)
+static void sendTurnoutSnapshot(uint32_t clientId, const AccessoryStateEntry &entry)
 {
-  if (turnoutStateCache[address] >= 0)
-  {
-    sendToClient(clientId, "turnoutChanged",
-      "{\"address\":" + String(address) +
-      ",\"closed\":" + String(turnoutStateCache[address] ? "true" : "false") + "}");
-  }
-  if (basicAccessoryStateCache[address] >= 0)
-  {
-    sendToClient(clientId, "accessoryChanged",
-      "{\"address\":" + String(address) +
-      ",\"active\":" + String(basicAccessoryStateCache[address] ? "true" : "false") + "}");
-  }
+  sendToClient(clientId, "turnoutChanged",
+    "{\"address\":" + String(entry.address) +
+    ",\"closed\":" + String(entry.state > 0 ? "true" : "false") + "}");
+}
+
+static void sendBasicAccessorySnapshot(uint32_t clientId, const AccessoryStateEntry &entry)
+{
+  sendToClient(clientId, "accessoryChanged",
+    "{\"address\":" + String(entry.address) +
+    ",\"active\":" + String(entry.state > 0 ? "true" : "false") + "}");
 }
 
 static void sendVpinSnapshot(uint32_t clientId, const VpinStateCacheEntry &entry)
@@ -936,7 +921,8 @@ static void startInitialSnapshots(uint32_t clientId)
     snapshot.active = true;
     snapshot.clientId = clientId;
     snapshot.stage = 0;
-    snapshot.accessoryAddress = 1;
+    snapshot.turnoutSlot = 0;
+    snapshot.accessorySlot = 0;
     snapshot.vpinSlot = 0;
     return;
   }
@@ -1002,19 +988,19 @@ static void processInitialSnapshots()
         break;
       case 8:
       {
-        bool sent = false;
-        while (snapshot.accessoryAddress <= MAX_LINEAR_ACCESSORY_ADDRESS)
-        {
-          const int address = snapshot.accessoryAddress++;
-          if (turnoutStateCache[address] < 0 && basicAccessoryStateCache[address] < 0) continue;
-          sendAccessorySnapshot(snapshot.clientId, address);
-          sent = true;
-          break;
-        }
-        if (!sent) ++snapshot.stage;
+        const AccessoryStateEntry *entry = turnoutStateCache.at(snapshot.turnoutSlot++);
+        if (entry) sendTurnoutSnapshot(snapshot.clientId, *entry);
+        else ++snapshot.stage;
         break;
       }
       case 9:
+      {
+        const AccessoryStateEntry *entry = basicAccessoryStateCache.at(snapshot.accessorySlot++);
+        if (entry) sendBasicAccessorySnapshot(snapshot.clientId, *entry);
+        else ++snapshot.stage;
+        break;
+      }
+      case 10:
       {
         bool sent = false;
         while (snapshot.vpinSlot < MAX_VPIN_STATE_CACHE)
@@ -1028,7 +1014,7 @@ static void processInitialSnapshots()
         if (!sent) ++snapshot.stage;
         break;
       }
-      case 10:
+      case 11:
         sendSensorSnapshot(snapshot.clientId);
         snapshot.active = false;
         break;
@@ -1039,43 +1025,40 @@ static void processInitialSnapshots()
   }
 }
 
-static int getLocoSlot(int address)
+static String makeLocoStateData(uint16_t address)
 {
-  int freeSlot = -1;
+  LocoSlot *slot =
+    LocoSlot::getSlot(address, false);
 
-  for (int i = 0; i < MAX_RUNTIME_LOCOS; ++i)
-  {
-    if (locoAddresses[i] == address)
-      return i;
+  const uint8_t speedCode =
+    slot
+      ? slot->getTargetSpeed()
+      : 0x80;
 
-    if (freeSlot < 0 && locoAddresses[i] == 0)
-      freeSlot = i;
-  }
+  const uint8_t speed =
+    speedCode & 0x7F;
 
-  if (freeSlot >= 0)
-  {
-    locoAddresses[freeSlot] = address;
-    locoSpeeds[freeSlot] = 0;
-    locoDirectionsForward[freeSlot] = true;
-    locoFunctionBits[freeSlot] = 0;
-    return freeSlot;
-  }
+  // LocoSlot stores the DCC direction. The browser works with the logical
+  // DCCExpressLite direction, so undo our per-loco inversion here.
+  const bool dccDirectionForward =
+    (speedCode & 0x80) != 0;
 
-  locoAddresses[0] = address;
-  locoSpeeds[0] = 0;
-  locoDirectionsForward[0] = true;
-  locoFunctionBits[0] = 0;
-  return 0;
-}
+  const bool logicalDirectionForward =
+    configuredLocos.isInverted(address)
+      ? !dccDirectionForward
+      : dccDirectionForward;
 
-static String makeLocoStateData(int slot)
-{
+  const uint32_t functionBits =
+    slot
+      ? slot->getFunctions()
+      : 0;
+
   String functions = "{";
   bool first = true;
 
   for (int fn = 0; fn < 32; ++fn)
   {
-    if ((locoFunctionBits[slot] & (1UL << fn)) == 0)
+    if ((functionBits & (1UL << fn)) == 0)
       continue;
 
     if (!first)
@@ -1089,12 +1072,16 @@ static String makeLocoStateData(int slot)
 
   functions += "}";
 
-  String data = "{\"loco\":{\"address\":";
-  data += String(locoAddresses[slot]);
+  String data =
+    "{\"loco\":{\"address\":";
+
+  data += String(address);
   data += ",\"speed\":";
-  data += String(locoSpeeds[slot]);
+  data += String(speed);
   data += ",\"direction\":\"";
-  data += locoDirectionsForward[slot] ? "forward" : "reverse";
+  data += logicalDirectionForward
+    ? "forward"
+    : "reverse";
   data += "\",\"functions\":";
   data += functions;
   data += "}}";
@@ -1117,12 +1104,7 @@ static String readFileText(const String &fileName)
   String path = fileName.startsWith("/") ? fileName : "/" + fileName;
   if (!LittleFS.exists(path)) return "";
   File file = LittleFS.open(path, "r");
-
-  if (!file)
-  {
-    return "";
-  }
-
+  if (!file) return "";
   String content = file.readString();
   file.close();
   return content;
@@ -1132,12 +1114,7 @@ static bool writeFileText(const String &fileName, const String &content)
 {
   String path = fileName.startsWith("/") ? fileName : "/" + fileName;
   File file = LittleFS.open(path, "w");
-
-  if (!file)
-  {
-    return false;
-  }
-
+  if (!file) return false;
   file.print(content);
   file.close();
   return true;
@@ -1145,12 +1122,10 @@ static bool writeFileText(const String &fileName, const String &content)
 
 static void loadLocoConfiguration()
 {
-  memset(configuredLocoAddresses, 0, sizeof(configuredLocoAddresses));
-  memset(configuredLocoInverted, 0, sizeof(configuredLocoInverted));
+  configuredLocos.clear();
 
   File file = LittleFS.open("/locos.json", "r");
-  if (!file)
-    return;
+  if (!file) return;
 
   JsonDocument doc;
   const DeserializationError error = deserializeJson(doc, file);
@@ -1162,33 +1137,27 @@ static void loadLocoConfiguration()
     return;
   }
 
-  int slot = 0;
+  size_t loaded = 0;
   for (JsonObjectConst loco : doc.as<JsonArrayConst>())
   {
-    if (slot >= MAX_RUNTIME_LOCOS)
-      break;
-
+    if (loaded >= LocoConfigCache::MAX_ENTRIES) break;
     const int address = loco["address"] | 0;
-    if (address <= 0)
-      continue;
-
-    configuredLocoAddresses[slot] = address;
-    configuredLocoInverted[slot] = loco["invert"] | false;
-    ++slot;
+    if (address <= 0 || address > 10239) continue;
+    if (!configuredLocos.set(static_cast<uint16_t>(address), loco["invert"] | false))
+    {
+      Serial.printf("Locomotive config allocation failed for #%d.\n", address);
+      break;
+    }
+    ++loaded;
   }
 
-  Serial.printf("Loaded %d locomotive direction settings.\n", slot);
+  Serial.printf("Loaded %u locomotive direction settings.\n", static_cast<unsigned>(loaded));
 }
 
 static bool isLocoDirectionInverted(int address)
 {
-  for (int i = 0; i < MAX_RUNTIME_LOCOS; ++i)
-  {
-    if (configuredLocoAddresses[i] == address)
-      return configuredLocoInverted[i];
-  }
-
-  return false;
+  return address > 0 && address <= 10239 &&
+    configuredLocos.isInverted(static_cast<uint16_t>(address));
 }
 
 static void handleFileCommand(uint32_t clientId, JsonDocument &doc, const char *uuid)
@@ -1208,12 +1177,8 @@ static void handleFileCommand(uint32_t clientId, JsonDocument &doc, const char *
   {
     const String content = readFileText(fileName);
     String response = "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":true,\"fileName\":\"" + escapeJson(fileName) + "\"";
-
-    if (action == "readJson" && content.length())
-      response += ",\"data\":" + content;
-    else
-      response += ",\"content\":\"" + escapeJson(content) + "\"";
-
+    if (action == "readJson" && content.length()) response += ",\"data\":" + content;
+    else response += ",\"content\":\"" + escapeJson(content) + "\"";
     response += "}";
     sendToClient(clientId, "fileResponse", response, uuid);
     return;
@@ -1222,12 +1187,8 @@ static void handleFileCommand(uint32_t clientId, JsonDocument &doc, const char *
   if (action == "writeText" || action == "writeJson")
   {
     String content;
-
-    if (action == "writeJson")
-      serializeJson(data["data"], content);
-    else
-      content = data["content"] | "";
-
+    if (action == "writeJson") serializeJson(data["data"], content);
+    else content = data["content"] | "";
     const bool ok = writeFileText(fileName, content);
     sendToClient(clientId, "fileResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"" + escapeJson(action) + "\",\"ok\":" + String(ok ? "true" : "false") + ",\"fileName\":\"" + escapeJson(fileName) + "\"}", uuid);
     return;
@@ -1245,12 +1206,7 @@ static void handleLocosCommand(uint32_t clientId, JsonDocument &doc, const char 
   if (action == "load")
   {
     String content = readFileText("locos.json");
-
-    if (!content.length())
-    {
-      content = "[]";
-    }
-
+    if (!content.length()) content = "[]";
     sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"load\",\"ok\":true,\"locos\":" + content + "}", uuid);
     return;
   }
@@ -1261,10 +1217,7 @@ static void handleLocosCommand(uint32_t clientId, JsonDocument &doc, const char 
     serializeJson(data["locos"], content);
     const bool ok = writeFileText("locos.json", content.length() ? content : "[]");
     const JsonArrayConst locos = data["locos"].as<JsonArrayConst>();
-
-    if (ok)
-      loadLocoConfiguration();
-
+    if (ok) loadLocoConfiguration();
     sendToClient(clientId, "locosResponse", "{\"requestId\":\"" + escapeJson(requestId) + "\",\"action\":\"save\",\"ok\":" + String(ok ? "true" : "false") + ",\"count\":" + String(locos.size()) + "}", uuid);
     return;
   }
@@ -1303,186 +1256,10 @@ static bool isValidLayoutBlockId(const char *blockId)
   return !error && countLayoutElementsById(layout, blockId, "trackblock") == 1;
 }
 
-static bool validateSignalLogicLimits(JsonVariantConst document, String &message)
-{
-  JsonDocument layout;
-  const String layoutText = readFileText("layout.json");
-  if (!layoutText.length() || deserializeJson(layout, layoutText) || !layout.is<JsonObject>())
-  {
-    message = "The layout cannot be loaded for integrity validation.";
-    return false;
-  }
-
-  const JsonArrayConst groups = document["groups"].as<JsonArrayConst>();
-  if (groups.size() > 24)
-  {
-    message = "A maximum of 24 signal groups is supported.";
-    return false;
-  }
-
-  for (JsonObjectConst group : groups)
-  {
-    const char *signalId = group["signalId"] | "";
-    if (countLayoutElementsById(layout, signalId, "tracksignal2") != 1)
-    {
-      message = "A signal rule references a missing, duplicate or invalid signal element ID.";
-      return false;
-    }
-
-    const JsonArrayConst rules = group["rules"].as<JsonArrayConst>();
-    if (rules.size() > 6)
-    {
-      message = "A maximum of 6 rules per signal is supported.";
-      return false;
-    }
-
-    for (JsonObjectConst rule : rules)
-    {
-      const JsonArrayConst conditions = rule["conditions"].as<JsonArrayConst>();
-      if (conditions.size() > 6)
-      {
-        message = "A maximum of 6 conditions per rule is supported.";
-        return false;
-      }
-      for (JsonObjectConst condition : conditions)
-      {
-        const char *type = condition["type"] | "turnout";
-        const bool sensor = !strcmp(type, "sensor");
-        const char *elementId = sensor
-          ? (condition["sensorId"] | "")
-          : (condition["turnoutId"] | "");
-        if (countLayoutElementsById(layout, elementId, sensor ? "tracksensor" : "turnout") != 1)
-        {
-          message = sensor
-            ? "A rule references a missing, duplicate or invalid sensor element ID."
-            : "A rule references a missing, duplicate or invalid turnout element ID.";
-          return false;
-        }
-      }
-    }
-  }
-  return true;
-}
-
-static bool persistSignalLogicDocument(JsonVariantConst document)
-{
-  LittleFS.remove("/signal-rules.tmp");
-  File file = LittleFS.open("/signal-rules.tmp", "w");
-  if (!file) return false;
-  const size_t written = serializeJson(document, file);
-  file.flush();
-  file.close();
-  if (!written)
-  {
-    LittleFS.remove("/signal-rules.tmp");
-    return false;
-  }
-
-  LittleFS.remove("/signal-rules.json.bak");
-  if (LittleFS.exists("/signal-rules.json") &&
-      !LittleFS.rename("/signal-rules.json", "/signal-rules.json.bak"))
-  {
-    LittleFS.remove("/signal-rules.tmp");
-    return false;
-  }
-
-  if (LittleFS.rename("/signal-rules.tmp", "/signal-rules.json")) return true;
-  if (LittleFS.exists("/signal-rules.json.bak"))
-    LittleFS.rename("/signal-rules.json.bak", "/signal-rules.json");
-  LittleFS.remove("/signal-rules.tmp");
-  return false;
-}
-
-static String signalLogicResponseData(const String &requestId, const String &action,
-                                      bool ok, const String &message = "", bool created = false)
-{
-  String document = readFileText("signal-rules.json");
-  if (!document.length()) document = "{\"version\":2,\"enabled\":false,\"groups\":[]}";
-
-  String response = "{\"requestId\":\"" + escapeJson(requestId) +
-    "\",\"action\":\"" + escapeJson(action) +
-    "\",\"ok\":" + String(ok ? "true" : "false");
-  if (message.length()) response += ",\"message\":\"" + escapeJson(message) + "\"";
-  response += ",\"created\":" + String(created ? "true" : "false");
-  response += ",\"document\":" + document;
-  response += ",\"issues\":[]";
-  response += ",\"state\":{\"running\":" + String(DCCExpressLiteSignalLogic::isRunning() ? "true" : "false") +
-    ",\"enabled\":" + String(DCCExpressLiteSignalLogic::isEnabled() ? "true" : "false") + "}";
-  response += "}";
-  return response;
-}
-
-static void handleSignalLogicCommand(uint32_t clientId, JsonDocument &doc, const char *uuid)
-{
-  JsonObject data = doc["data"].as<JsonObject>();
-  const String requestId = data["requestId"] | "";
-  const String action = data["action"] | "";
-
-  if (action == "load" || action == "state")
-  {
-    sendToClient(clientId, "signalLogicResponse",
-      signalLogicResponseData(requestId, action, true), uuid);
-    return;
-  }
-
-  if (action == "save")
-  {
-    JsonVariantConst document = data["document"];
-    String validationMessage;
-    if (!document.is<JsonObjectConst>() || !validateSignalLogicLimits(document, validationMessage))
-    {
-      sendToClient(clientId, "signalLogicResponse",
-        signalLogicResponseData(requestId, action, false,
-          validationMessage.length() ? validationMessage : "Missing signal logic document."), uuid);
-      return;
-    }
-
-    if (!persistSignalLogicDocument(document) || !DCCExpressLiteSignalLogic::reload())
-    {
-      sendToClient(clientId, "signalLogicResponse",
-        signalLogicResponseData(requestId, action, false, "Could not save signal logic rules."), uuid);
-      return;
-    }
-
-    sendToClient(clientId, "signalLogicResponse",
-      signalLogicResponseData(requestId, action, true), uuid);
-    return;
-  }
-
-  if (action == "start" || action == "stop")
-  {
-    JsonDocument rules;
-    const String current = readFileText("signal-rules.json");
-    if (deserializeJson(rules, current) || !rules.is<JsonObject>())
-    {
-      sendToClient(clientId, "signalLogicResponse",
-        signalLogicResponseData(requestId, action, false, "Signal logic rules are invalid."), uuid);
-      return;
-    }
-
-    const bool nextEnabled = action == "start";
-    rules["enabled"] = nextEnabled;
-    if (!persistSignalLogicDocument(rules.as<JsonVariantConst>()) || !DCCExpressLiteSignalLogic::reload())
-    {
-      sendToClient(clientId, "signalLogicResponse",
-        signalLogicResponseData(requestId, action, false, "Could not update signal logic state."), uuid);
-      return;
-    }
-
-    sendToClient(clientId, "signalLogicResponse",
-      signalLogicResponseData(requestId, action, true), uuid);
-    return;
-  }
-
-  sendToClient(clientId, "signalLogicResponse",
-    signalLogicResponseData(requestId, action, false, "Unsupported signal logic action."), uuid);
-}
-
 static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
 {
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, data, len);
-
   if (error)
   {
     sendError(clientId, "invalid_json");
@@ -1541,13 +1318,15 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     emergencyStopActive = true;
     dccParseRaw("<!>");
 
-    for (int i = 0; i < MAX_RUNTIME_LOCOS; ++i)
+    for (
+      LocoSlot *slot = LocoSlot::getFirst();
+      slot;
+      slot = slot->getNext())
     {
-      if (locoAddresses[i] == 0)
-        continue;
-
-      locoSpeeds[i] = 0;
-      broadcastMessage("locoState", makeLocoStateData(i), uuid);
+      broadcastMessage(
+        "locoState",
+        makeLocoStateData(slot->getLoco()),
+        uuid);
     }
 
     sendPowerInfo();
@@ -1568,10 +1347,11 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     dccParseRaw("<t " + String(address) + " " + String(speed) + " " + String(dccDirection) + ">");
     emergencyStopActive = false;
 
-    const int slot = getLocoSlot(address);
-    locoSpeeds[slot] = speed;
-    locoDirectionsForward[slot] = logicalDirectionForward;
-    broadcastMessage("locoState", makeLocoStateData(slot), uuid);
+    broadcastMessage(
+      "locoState",
+      makeLocoStateData(
+        static_cast<uint16_t>(address)),
+      uuid);
     sendPowerInfo();
     return;
   }
@@ -1580,7 +1360,12 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
   {
     const int address = getInt(payload["locoAddress"]);
     dccParseRaw("<t " + String(address) + ">");
-    sendToClient(clientId, "locoState", makeLocoStateData(getLocoSlot(address)), uuid);
+    sendToClient(
+      clientId,
+      "locoState",
+      makeLocoStateData(
+        static_cast<uint16_t>(address)),
+      uuid);
     return;
   }
 
@@ -1591,17 +1376,11 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     const bool active = getBool(payload["active"]);
 
     dccParseRaw("<F " + String(address) + " " + String(fn) + " " + String(active ? 1 : 0) + ">");
-    const int slot = getLocoSlot(address);
-
-    if (fn >= 0 && fn < 32)
-    {
-      if (active)
-        locoFunctionBits[slot] |= (1UL << fn);
-      else
-        locoFunctionBits[slot] &= ~(1UL << fn);
-    }
-
-    broadcastMessage("locoState", makeLocoStateData(slot), uuid);
+    broadcastMessage(
+      "locoState",
+      makeLocoStateData(
+        static_cast<uint16_t>(address)),
+      uuid);
     return;
   }
 
@@ -1624,7 +1403,8 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     }
 
     dccParseRaw("<a " + String(address) + " " + String(closed ? 1 : 0) + ">");
-    turnoutStateCache[address] = closed ? 1 : 0;
+    if (!turnoutStateCache.set(static_cast<uint16_t>(address), closed))
+      Serial.printf("Turnout cache allocation failed for #%d.\n", address);
     DCCExpressLiteRuntimeState::setTurnout(address, closed);
     DCCExpressLiteSignalLogic::notifyTurnout(address, closed);
     broadcastMessage("turnoutChanged", "{\"address\":" + String(address) + ",\"closed\":" + String(closed ? "true" : "false") + "}", uuid);
@@ -1675,7 +1455,6 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
   {
     const int address = getInt(payload["address"]);
     const bool active = getBool(payload["active"]);
-
     writeBasicAccessoryState(address, active);
     return;
   }
@@ -1697,8 +1476,7 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     const int address = getInt(payload["address"]);
     const int aspect = getInt(payload["aspect"]);
 
-    if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS ||
-        aspect < 0 || aspect > 255)
+    if (address < 1 || address > MAX_LINEAR_ACCESSORY_ADDRESS || aspect < 0 || aspect > 255)
     {
       sendError(clientId, "signal_aspect_out_of_range", uuid);
       return;
@@ -1716,7 +1494,8 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
     if (payload["turnoutPhysicalValue"].is<bool>())
     {
       const bool physicalValue = payload["turnoutPhysicalValue"].as<bool>();
-      turnoutStateCache[address] = physicalValue ? 1 : 0;
+      if (!turnoutStateCache.set(static_cast<uint16_t>(address), physicalValue))
+        Serial.printf("Turnout cache allocation failed for #%d.\n", address);
       DCCExpressLiteRuntimeState::setTurnout(static_cast<uint16_t>(address), physicalValue);
       DCCExpressLiteSignalLogic::notifyTurnout(static_cast<uint16_t>(address), physicalValue);
       Serial.printf("Extended turnout #%d aspect=%d runtime physical=%u.\n",
@@ -1736,7 +1515,6 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
   {
     const int address = getInt(payload["address"]);
     const bool on = getBool(payload["on"]);
-
     if (address < 0 || address > 32767)
     {
       sendError(clientId, "sensor_address_out_of_range", uuid);
@@ -1761,12 +1539,6 @@ static void handleWsMessage(uint32_t clientId, const char *data, size_t len)
   if (type == "locosCommand")
   {
     handleLocosCommand(clientId, doc, uuid);
-    return;
-  }
-
-  if (type == "signalLogicCommand")
-  {
-    handleSignalLogicCommand(clientId, doc, uuid);
     return;
   }
 
@@ -1857,8 +1629,7 @@ static void processWsInbound()
     }
     else
     {
-      if (!hasWsAllocationHeadroom(item->length + 2048))
-        return;
+      if (!hasWsAllocationHeadroom(item->length + 2048)) return;
       handleWsMessage(item->clientId, item->payload, item->length);
     }
 
@@ -1987,7 +1758,6 @@ static void sendCompressedAsset(AsyncWebServerRequest *request,
   }
 
   File file = LittleFS.open(compressedPath, "r");
-
   if (!file)
   {
     request->send(404, "text/plain", "Asset not found");
@@ -2007,15 +1777,13 @@ static bool normalizeFsPath(String input, String &normalized, bool allowRoot = t
   input.trim();
   input.replace("\\", "/");
 
-  if (!input.startsWith("/"))
-    input = "/" + input;
+  if (!input.startsWith("/")) input = "/" + input;
 
   normalized = "";
   int start = 0;
   while (start < static_cast<int>(input.length()))
   {
-    while (start < static_cast<int>(input.length()) && input[start] == '/')
-      ++start;
+    while (start < static_cast<int>(input.length()) && input[start] == '/') ++start;
     if (start >= static_cast<int>(input.length())) break;
 
     int end = input.indexOf('/', start);
@@ -2027,9 +1795,7 @@ static bool normalizeFsPath(String input, String &normalized, bool allowRoot = t
     if (segment.length() && segment != ".")
     {
       for (size_t i = 0; i < segment.length(); ++i)
-      {
         if (static_cast<uint8_t>(segment[i]) < 32) return false;
-      }
       normalized += "/" + segment;
     }
     start = end + 1;
@@ -2071,8 +1837,9 @@ void setupHTTPServer()
     static_cast<unsigned long>(ESP.getFreeHeap()),
     static_cast<unsigned long>(ESP.getMinFreeHeap()));
 
-  memset(turnoutStateCache, -1, sizeof(turnoutStateCache));
-  memset(basicAccessoryStateCache, -1, sizeof(basicAccessoryStateCache));
+  turnoutStateCache.clear();
+  basicAccessoryStateCache.clear();
+  configuredLocos.clear();
   memset(vpinStateCache, 0, sizeof(vpinStateCache));
   nextVpinReplacementSlot = 0;
   memset(sensorStateGroups, 0, sizeof(sensorStateGroups));
@@ -2094,42 +1861,41 @@ void setupHTTPServer()
     return;
   }
 
-  if (!LittleFS.exists("/images"))
-    LittleFS.mkdir("/images");
+  if (!LittleFS.exists("/images")) LittleFS.mkdir("/images");
 
   Serial.println("LittleFS started!");
   LCD(4, F("HTTP: FS OK"));
   DCCExpressLiteRuntimeState::begin();
-  for (int address = 1; address <= MAX_LINEAR_ACCESSORY_ADDRESS; ++address)
+
+  for (uint8_t i = 0; i < DCCExpressLiteRuntimeState::turnoutCount(); ++i)
   {
-    const int8_t state = DCCExpressLiteRuntimeState::getTurnout(address);
-    if (state >= 0) turnoutStateCache[address] = state;
+    uint16_t address = 0;
+    bool closed = false;
+    if (DCCExpressLiteRuntimeState::getTurnoutAt(i, address, closed) &&
+        !turnoutStateCache.set(address, closed))
+    {
+      Serial.printf("Turnout cache allocation failed while restoring #%u.\n", address);
+      break;
+    }
   }
+
   loadLocoConfiguration();
   DCCExpressLiteSignalLogic::begin(
     readTurnoutStateForSignalLogic,
     readVpinStateForSignalLogic,
     writeSignalOutput);
-  // Prime browser snapshots with the current state of every DCC-EX sensor.
-  // The replies are consumed incrementally in loopHTTPServer().
   dccParseRaw("<Q>");
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
   httpServer.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  request->send(204);
-                });
+                { request->send(204); });
 
   httpServer.on("/api/settings/network", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  request->send(200, "application/json", networkSettingsJson());
-                });
+                { request->send(200, "application/json", networkSettingsJson()); });
 
   httpServer.on("/api/devices", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  request->send(200, "application/json", hardwareDevicesJson());
-                });
+                { request->send(200, "application/json", hardwareDevicesJson()); });
 
   httpServer.on("/api/device-config", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
@@ -2147,8 +1913,7 @@ void setupHTTPServer()
   httpServer.on("/api/device-config", HTTP_POST,
                 [](AsyncWebServerRequest *request)
                 {
-                  if (deviceConfigUploadFile)
-                    deviceConfigUploadFile.close();
+                  if (deviceConfigUploadFile) deviceConfigUploadFile.close();
 
                   if (!deviceConfigUploadOk)
                   {
@@ -2183,8 +1948,7 @@ void setupHTTPServer()
                   (void)request;
                   if (index == 0)
                   {
-                    if (deviceConfigUploadFile)
-                      deviceConfigUploadFile.close();
+                    if (deviceConfigUploadFile) deviceConfigUploadFile.close();
                     LittleFS.remove(DCCExpressLiteDeviceConfig::TEMP_PATH);
                     deviceConfigUploadTooLarge = total > DCCExpressLiteDeviceConfig::MAX_CONFIG_BYTES;
                     deviceConfigUploadFile = deviceConfigUploadTooLarge
@@ -2221,7 +1985,6 @@ void setupHTTPServer()
                     password = NetworkSettings::password();
 
                   String error;
-
                   if (!NetworkSettings::save(ssid, password, error))
                   {
                     request->send(400, "application/json", "{\"ok\":false,\"message\":\"" + escapeJson(error) + "\"}");
@@ -2235,13 +1998,11 @@ void setupHTTPServer()
   httpServer.on("/api/settings/network/reset", HTTP_POST, [](AsyncWebServerRequest *request)
                 {
                   String error;
-
                   if (!NetworkSettings::clear(error))
                   {
                     request->send(500, "application/json", "{\"ok\":false,\"message\":\"" + escapeJson(error) + "\"}");
                     return;
                   }
-
                   request->send(200, "application/json", "{\"ok\":true,\"message\":\"Network cleared. Device is restarting in hotspot mode.\"}");
                   scheduleRestart();
                 });
@@ -2253,16 +2014,13 @@ void setupHTTPServer()
                     request->send(LittleFS, "/layout.json", "application/json; charset=utf-8", false);
                     return;
                   }
-
-                  request->send(200, "application/json; charset=utf-8",
-                    "{\"gridSize\":40,\"layers\":[]}");
+                  request->send(200, "application/json; charset=utf-8", "{\"gridSize\":40,\"layers\":[]}");
                 });
 
   httpServer.on("/api/layout", HTTP_POST,
                 [](AsyncWebServerRequest *request)
                 {
-                  if (layoutUploadFile)
-                    layoutUploadFile.close();
+                  if (layoutUploadFile) layoutUploadFile.close();
 
                   if (!layoutUploadOk)
                   {
@@ -2276,7 +2034,6 @@ void setupHTTPServer()
                   layoutUploadOk = false;
                   if (renamed)
                   {
-                    signalLogicReloadPending = true;
                     runtimeStatePrunePending = true;
                   }
                   request->send(renamed ? 200 : 500, "application/json",
@@ -2288,27 +2045,19 @@ void setupHTTPServer()
                 [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
                 {
                   (void)request;
-
                   if (index == 0)
                   {
-                    if (layoutUploadFile)
-                      layoutUploadFile.close();
-
+                    if (layoutUploadFile) layoutUploadFile.close();
                     LittleFS.remove("/layout.tmp");
                     layoutUploadFile = LittleFS.open("/layout.tmp", "w");
                     layoutUploadOk = (bool)layoutUploadFile;
                   }
-
                   if (layoutUploadOk && len && layoutUploadFile.write(data, len) != len)
                     layoutUploadOk = false;
-
-                  if (index + len == total)
+                  if (index + len == total && layoutUploadFile)
                   {
-                    if (layoutUploadFile)
-                    {
-                      layoutUploadFile.flush();
-                      layoutUploadFile.close();
-                    }
+                    layoutUploadFile.flush();
+                    layoutUploadFile.close();
                   }
                 });
 
@@ -2319,16 +2068,13 @@ void setupHTTPServer()
                     request->send(LittleFS, "/locos.json", "application/json; charset=utf-8", false);
                     return;
                   }
-
                   request->send(200, "application/json; charset=utf-8", "[]");
                 });
 
   httpServer.on("/api/locos", HTTP_POST,
                 [](AsyncWebServerRequest *request)
                 {
-                  if (locosUploadFile)
-                    locosUploadFile.close();
-
+                  if (locosUploadFile) locosUploadFile.close();
                   if (!locosUploadOk)
                   {
                     LittleFS.remove("/locos.tmp");
@@ -2339,9 +2085,7 @@ void setupHTTPServer()
                   LittleFS.remove("/locos.json");
                   const bool renamed = LittleFS.rename("/locos.tmp", "/locos.json");
                   locosUploadOk = false;
-
-                  if (renamed)
-                    loadLocoConfiguration();
+                  if (renamed) loadLocoConfiguration();
 
                   request->send(renamed ? 200 : 500, "application/json",
                     renamed
@@ -2352,20 +2096,15 @@ void setupHTTPServer()
                 [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
                 {
                   (void)request;
-
                   if (index == 0)
                   {
-                    if (locosUploadFile)
-                      locosUploadFile.close();
-
+                    if (locosUploadFile) locosUploadFile.close();
                     LittleFS.remove("/locos.tmp");
                     locosUploadFile = LittleFS.open("/locos.tmp", "w");
                     locosUploadOk = (bool)locosUploadFile;
                   }
-
                   if (locosUploadOk && len && locosUploadFile.write(data, len) != len)
                     locosUploadOk = false;
-
                   if (index + len == total && locosUploadFile)
                   {
                     locosUploadFile.flush();
@@ -2376,13 +2115,9 @@ void setupHTTPServer()
   httpServer.on("/", HTTP_GET, sendIndex);
   httpServer.on("/index.html", HTTP_GET, sendIndex);
   httpServer.on("/assets/app-v2.js", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  sendCompressedAsset(request, "/assets/app-v2.js.gz", "/assets/app-v2.js", "application/javascript; charset=utf-8");
-                });
+                { sendCompressedAsset(request, "/assets/app-v2.js.gz", "/assets/app-v2.js", "application/javascript; charset=utf-8"); });
   httpServer.on("/assets/index-v2.css", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-                  sendCompressedAsset(request, "/assets/index-v2.css.gz", "/assets/index-v2.css", "text/css; charset=utf-8");
-                });
+                { sendCompressedAsset(request, "/assets/index-v2.css.gz", "/assets/index-v2.css", "text/css; charset=utf-8"); });
 
   httpServer.on("/api/files/text", HTTP_GET, [](AsyncWebServerRequest *request)
                  {
@@ -2432,7 +2167,6 @@ void setupHTTPServer()
                   }
 
                   File file = root ? root.openNextFile() : File();
-
                   String json = "{\"path\":\"" + escapeJson(directory) + "\",\"entries\":[";
                   bool first = true;
                   while (file)
@@ -2445,7 +2179,6 @@ void setupHTTPServer()
                     if (name.length())
                     {
                       if (!first) json += ",";
-
                       json += "{\"name\":\"" + escapeJson(name) + "\",";
                       json += "\"path\":\"" + escapeJson(joinFsPath(directory, name)) + "\",";
                       json += "\"type\":\"" + String(file.isDirectory() ? "directory" : "file") + "\",";
@@ -2470,9 +2203,7 @@ void setupHTTPServer()
                   bool valid = false;
 
                   if (request->hasParam("path"))
-                  {
                     valid = normalizeFsPath(request->getParam("path")->value(), path, false);
-                  }
                   else if (request->hasParam("fn"))
                   {
                     const String filename = sanitizeFsFileName(request->getParam("fn")->value());
@@ -2549,11 +2280,8 @@ void setupHTTPServer()
                   }
 
                   bool *uploadOk = static_cast<bool *>(request->_tempObject);
-                  if (uploadOk && *uploadOk && len)
-                  {
-                    if (request->_tempFile.write(data, len) != len)
-                      *uploadOk = false;
-                  }
+                  if (uploadOk && *uploadOk && len && request->_tempFile.write(data, len) != len)
+                    *uploadOk = false;
 
                   if (final)
                   {
@@ -2562,9 +2290,7 @@ void setupHTTPServer()
                       request->_tempFile.flush();
                       request->_tempFile.close();
                     }
-
-                    if (!uploadOk || !*uploadOk)
-                      Serial.println("File upload failed.");
+                    if (!uploadOk || !*uploadOk) Serial.println("File upload failed.");
                   }
                  });
 
@@ -2595,12 +2321,9 @@ void setupHTTPServer()
                   json += "}";
                   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
                   response->addHeader("Access-Control-Allow-Origin", "*");
-                   request->send(response);
+                  request->send(response);
                  });
 
-  // Keep static handlers last. Otherwise the catch-all filesystem handler
-  // probes API paths (for example /fsinfo) as files before their real route,
-  // causing needless LittleFS work and heap churn for every connected client.
   httpServer.serveStatic("/images/", LittleFS, "/images/")
     .setCacheControl("no-cache");
 
@@ -2612,15 +2335,10 @@ void setupHTTPServer()
                 AwsEventType type, void *arg, uint8_t *data, size_t len)
              {
                (void)server;
-
                if (type == WS_EVT_CONNECT)
-               {
                  enqueueWsInbound(WsInboundKind::Connect, client->id());
-               }
                else if (type == WS_EVT_DISCONNECT)
-               {
                  enqueueWsInbound(WsInboundKind::Disconnect, client->id());
-               }
                else if (type == WS_EVT_DATA)
                {
                  AwsFrameInfo *info = static_cast<AwsFrameInfo *>(arg);
@@ -2649,11 +2367,6 @@ void loopHTTPServer()
   if (freeHeap < minFreeHeapBytes) minFreeHeapBytes = freeHeap;
 
   processWsInbound();
-  if (signalLogicReloadPending)
-  {
-    signalLogicReloadPending = false;
-    DCCExpressLiteSignalLogic::reload();
-  }
   if (runtimeStatePrunePending)
   {
     runtimeStatePrunePending = false;
