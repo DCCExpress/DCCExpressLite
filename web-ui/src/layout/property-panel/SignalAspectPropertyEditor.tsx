@@ -20,7 +20,7 @@ import {
   useState,
 } from "react";
 
-import SignalLogicDialog from "@/components/SignalLogicDialog";
+import SignalAutomationDialog from "@/components/SignalAutomationDialog";
 import SignalOutputDialog from "@/components/SignalOutputDialog";
 
 import type {
@@ -341,7 +341,7 @@ export default function SignalAspectPropertyEditor({
       />
 
       {automationLayout && (
-        <SignalLogicDialog
+        <SignalAutomationDialog
           opened={automationOpened}
           onClose={() => setAutomationOpened(false)}
           layout={automationLayout}

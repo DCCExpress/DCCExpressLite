@@ -54,10 +54,35 @@ export function useLocoDialogState(
     [locos, selectedId]
   );
 
-  const functionOptions = selectedLoco?.functions.map(fn => ({
-    value: String(fn.number),
-    label: `${fn.icon ? `${fn.icon} ` : ""}F${fn.number} - ${fn.name}`,
-  })) ?? [];
+  /*
+   * Mantine Select requires every option value to be unique.
+   *
+   * Function actions reference a DCC function by function number, not by the
+   * editor-only function ID. While the user edits a function number it is
+   * perfectly possible to have a temporary duplicate (for example two F1
+   * entries). Passing both to Select would produce duplicate value "1" and
+   * Mantine intentionally throws an exception.
+   *
+   * Keep the editor state untouched, but expose at most one Select option for
+   * each DCC function number. If duplicates temporarily exist, the first one
+   * wins until the user finishes editing.
+   */
+  const functionOptions = useMemo(() => {
+    const unique = new Map<string, { value: string; label: string }>();
+
+    for (const fn of selectedLoco?.functions ?? []) {
+      const value = String(fn.number);
+
+      if (unique.has(value)) continue;
+
+      unique.set(value, {
+        value,
+        label: `${fn.icon ? `${fn.icon} ` : ""}F${fn.number} - ${fn.name}`,
+      });
+    }
+
+    return [...unique.values()];
+  }, [selectedLoco?.functions]);
 
   const updateSelectedLoco = (patch: Partial<Loco>): void => {
     if (!selectedLoco) return;
