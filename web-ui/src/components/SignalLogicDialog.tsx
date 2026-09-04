@@ -23,7 +23,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   loadSignalLogicRulesWs,
@@ -131,15 +131,12 @@ export default function SignalLogicDialog({
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toolbarActionLoading, setToolbarActionLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [migrationIssues, setMigrationIssues] =
     useState<SignalLogicValidationIssue[]>([]);
 
-  // The Layout toolbar still owns the old "open signal dialog" state. In
-  // toolbar mode we intentionally consume that open action as a single global
-  // ON/OFF toggle instead of rendering the old common dialog.
-  const toolbarToggleHandledRef = useRef(false);
 
   const isSignalScoped = signalId !== undefined;
 
@@ -342,10 +339,11 @@ export default function SignalLogicDialog({
     }
   };
 
-  const toggleGlobalAutomation = async (): Promise<void> => {
+  const setGlobalAutomation = async (enabled: boolean): Promise<void> => {
+    setToolbarActionLoading(true);
+
     try {
       const result = await loadSignalLogicRulesWs();
-      const enabled = !result.document.enabled;
       const saved = await saveSignalLogicRulesWs({
         ...result.document,
         enabled,
@@ -358,6 +356,8 @@ export default function SignalLogicDialog({
         title: "Signal automation",
         message: enabled ? "Automation enabled." : "Automation disabled.",
       });
+
+      onClose();
     } catch (toggleError) {
       showNotification({
         color: "red",
@@ -368,29 +368,18 @@ export default function SignalLogicDialog({
             : String(toggleError),
       });
     } finally {
-      onClose();
+      setToolbarActionLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!opened) {
-      toolbarToggleHandledRef.current = false;
-      return;
-    }
-
-    if (!isSignalScoped) {
-      if (toolbarToggleHandledRef.current) {
-        return;
-      }
-
-      toolbarToggleHandledRef.current = true;
-      void toggleGlobalAutomation();
+    if (!opened || !isSignalScoped) {
       return;
     }
 
     void load();
 
-    // The load/toggle functions intentionally use the option catalogues from
+    // The load function intentionally uses the option catalogues from
     // the current render. Opening is the lifecycle boundary for this dialog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, isSignalScoped, signalId]);
@@ -530,8 +519,52 @@ export default function SignalLogicDialog({
     : undefined;
 
   if (!isSignalScoped) {
-    // Toolbar mode deliberately has no common editor UI anymore.
-    return null;
+    return (
+      <AppModal
+        opened={opened}
+        onClose={onClose}
+        title="Signal automation"
+        size="sm"
+        centered
+        draggable
+      >
+        <Stack gap="md">
+          <Text>
+            What do you want to do with automatic signal control?
+          </Text>
+
+          <Group grow>
+            <Button
+              color="green"
+              loading={toolbarActionLoading}
+              disabled={toolbarActionLoading}
+              onClick={() => void setGlobalAutomation(true)}
+            >
+              Enable automation
+            </Button>
+
+            <Button
+              color="red"
+              variant="light"
+              loading={toolbarActionLoading}
+              disabled={toolbarActionLoading}
+              onClick={() => void setGlobalAutomation(false)}
+            >
+              Disable automation
+            </Button>
+          </Group>
+
+          <Button
+            variant="subtle"
+            color="gray"
+            disabled={toolbarActionLoading}
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+        </Stack>
+      </AppModal>
+    );
   }
 
   return (
