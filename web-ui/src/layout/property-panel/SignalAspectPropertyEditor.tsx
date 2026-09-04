@@ -1,4 +1,5 @@
 import {
+  Alert,
   Box,
   Button,
   Group,
@@ -11,6 +12,7 @@ import {
 
 import {
   IconSettings,
+  IconTrafficLights,
 } from "@tabler/icons-react";
 
 import {
@@ -18,6 +20,7 @@ import {
   useState,
 } from "react";
 
+import SignalLogicDialog from "@/components/SignalLogicDialog";
 import SignalOutputDialog from "@/components/SignalOutputDialog";
 
 import type {
@@ -28,6 +31,10 @@ import type {
 import {
   cloneSignalOutputConfiguration,
 } from "@/domain/layout/signalOutput";
+
+import {
+  LayoutView,
+} from "../../models/editor/core/LayoutView";
 
 import type {
   BaseElementView,
@@ -89,6 +96,18 @@ export default function SignalAspectPropertyEditor({
   const [opened, setOpened] =
     useState(false);
 
+  const [automationOpened, setAutomationOpened] =
+    useState(false);
+
+  const [automationLayout, setAutomationLayout] =
+    useState<LayoutView | null>(null);
+
+  const [automationLoading, setAutomationLoading] =
+    useState(false);
+
+  const [automationError, setAutomationError] =
+    useState<string | null>(null);
+
   const dialogValue =
     useMemo(
       () =>
@@ -140,6 +159,48 @@ export default function SignalAspectPropertyEditor({
     onUpdateSelectedElement(signal);
   };
 
+  const openAutomation = async (): Promise<void> => {
+    setAutomationLoading(true);
+    setAutomationError(null);
+
+    try {
+      const response = await fetch("/api/layout", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          "The saved layout could not be loaded for signal automation."
+        );
+      }
+
+      const loadedLayout =
+        LayoutView.fromJSON(await response.json());
+
+      const savedSignal =
+        loadedLayout
+          .getAllElements()
+          .find(element => element.id === signal.id);
+
+      if (!(savedSignal instanceof TrackSignalElementView)) {
+        throw new Error(
+          "Save the layout before configuring automation for this signal."
+        );
+      }
+
+      setAutomationLayout(loadedLayout);
+      setAutomationOpened(true);
+    } catch (loadError) {
+      setAutomationError(
+        loadError instanceof Error
+          ? loadError.message
+          : String(loadError)
+      );
+    } finally {
+      setAutomationLoading(false);
+    }
+  };
+
   return (
     <>
       <Stack gap="sm">
@@ -152,6 +213,28 @@ export default function SignalAspectPropertyEditor({
         >
           Signal configuration
         </Button>
+
+        <Button
+          variant="light"
+          color="yellow"
+          leftSection={
+            <IconTrafficLights size={17} />
+          }
+          loading={automationLoading}
+          onClick={() => void openAutomation()}
+        >
+          Signal automation
+        </Button>
+
+        {automationError && (
+          <Alert
+            color="red"
+            onClose={() => setAutomationError(null)}
+            withCloseButton
+          >
+            {automationError}
+          </Alert>
+        )}
 
         <Text size="xs" c="dimmed">
           {"Address "}
@@ -256,6 +339,15 @@ export default function SignalAspectPropertyEditor({
         onApply={apply}
         onTestState={testState}
       />
+
+      {automationLayout && (
+        <SignalLogicDialog
+          opened={automationOpened}
+          onClose={() => setAutomationOpened(false)}
+          layout={automationLayout}
+          signalId={signal.id}
+        />
+      )}
     </>
   );
 }

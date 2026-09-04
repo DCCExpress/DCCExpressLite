@@ -1049,6 +1049,8 @@ export default function LiteLayoutPage({ version, locos, onBack, onOpenLocoEdito
                   label={item.label}
                   width={54}
                   height={54}
+                  translateX={4}
+                  translateY={10}
                   onClick={() => {
                     setTool({ mode: "draw", elementType: item.type });
                     setPickerOpened(false);

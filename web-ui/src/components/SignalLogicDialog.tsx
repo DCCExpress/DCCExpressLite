@@ -15,6 +15,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { showNotification } from "@mantine/notifications";
 import {
   IconAlertTriangle,
   IconDeviceFloppy,
@@ -22,7 +23,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   loadSignalLogicRulesWs,
@@ -56,6 +57,12 @@ type SignalLogicDialogProps = {
   opened: boolean;
   onClose: () => void;
   layout: LayoutView;
+  /**
+   * When set, the existing Signal Logic editor is scoped to this one signal.
+   * When omitted, opening the component acts as the global automation ON/OFF
+   * command used by the Layout toolbar.
+   */
+  signalId?: LayoutElementId;
 };
 
 type Option = { value: string; label: string };
@@ -110,118 +117,224 @@ function stateOptions(signal: SignalOption | undefined): Option[] {
   return signal?.states.map(state => ({ value: state.id, label: state.label })) ?? [];
 }
 
-export default function SignalLogicDialog({ opened, onClose, layout }: SignalLogicDialogProps) {
+export default function SignalLogicDialog({
+  opened,
+  onClose,
+  layout,
+  signalId,
+}: SignalLogicDialogProps) {
   const [groups, setGroups] = useState<SignalLogicRuleGroupDto[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [runtime, setRuntime] = useState<SignalLogicRuntimeStateDto>({ running: false, enabled: false });
+  const [runtime, setRuntime] = useState<SignalLogicRuntimeStateDto>({
+    running: false,
+    enabled: false,
+  });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [migrationIssues, setMigrationIssues] = useState<SignalLogicValidationIssue[]>([]);
+  const [migrationIssues, setMigrationIssues] =
+    useState<SignalLogicValidationIssue[]>([]);
 
-  const signalOptions = useMemo<SignalOption[]>(() =>
-    layout.getAllElements()
-      .filter((element): element is TrackSignalElementView =>
-        element instanceof TrackSignalElementView && element.signalOutput.address > 0)
-      .map(signal => ({
-        value: String(signal.id),
-        label: `Signal #${signal.signalOutput.address}${signal.name && signal.name !== "element" ? ` · ${signal.name}` : ""}`,
-        id: signal.id,
-        address: signal.signalOutput.address,
-        states: signal.signalOutput.states.map(state => ({ id: state.id, label: state.label })),
-      }))
-      .sort((a, b) => a.address - b.address), [layout]);
+  // The Layout toolbar still owns the old "open signal dialog" state. In
+  // toolbar mode we intentionally consume that open action as a single global
+  // ON/OFF toggle instead of rendering the old common dialog.
+  const toolbarToggleHandledRef = useRef(false);
+
+  const isSignalScoped = signalId !== undefined;
+
+  const signalOptions = useMemo<SignalOption[]>(
+    () =>
+      layout
+        .getAllElements()
+        .filter(
+          (element): element is TrackSignalElementView =>
+            element instanceof TrackSignalElementView &&
+            element.signalOutput.address > 0
+        )
+        .map(signal => ({
+          value: String(signal.id),
+          label: `Signal #${signal.signalOutput.address}${
+            signal.name && signal.name !== "element" ? ` · ${signal.name}` : ""
+          }`,
+          id: signal.id,
+          address: signal.signalOutput.address,
+          states: signal.signalOutput.states.map(state => ({
+            id: state.id,
+            label: state.label,
+          })),
+        }))
+        .sort((a, b) => a.address - b.address),
+    [layout]
+  );
 
   const turnoutOptions = useMemo<TurnoutOption[]>(() => {
     const result: TurnoutOption[] = [];
+
     for (const turnout of layout.getAllElements()) {
       if (turnout instanceof TrackTurnoutDoubleElementView) {
-        if (turnout.turnout1Address > 0) result.push({
-          value: `${turnout.id}:0`,
-          label: `Turnout #${turnout.turnout1Address} · ch1${turnout.name && turnout.name !== "element" ? ` · ${turnout.name}` : ""}`,
-          id: turnout.id,
-          address: turnout.turnout1Address,
-          channel: 0,
-        });
-        if (turnout.turnout2Address > 0) result.push({
-          value: `${turnout.id}:1`,
-          label: `Turnout #${turnout.turnout2Address} · ch2${turnout.name && turnout.name !== "element" ? ` · ${turnout.name}` : ""}`,
-          id: turnout.id,
-          address: turnout.turnout2Address,
-          channel: 1,
-        });
+        if (turnout.turnout1Address > 0) {
+          result.push({
+            value: `${turnout.id}:0`,
+            label: `Turnout #${turnout.turnout1Address} · ch1${
+              turnout.name && turnout.name !== "element" ? ` · ${turnout.name}` : ""
+            }`,
+            id: turnout.id,
+            address: turnout.turnout1Address,
+            channel: 0,
+          });
+        }
+
+        if (turnout.turnout2Address > 0) {
+          result.push({
+            value: `${turnout.id}:1`,
+            label: `Turnout #${turnout.turnout2Address} · ch2${
+              turnout.name && turnout.name !== "element" ? ` · ${turnout.name}` : ""
+            }`,
+            id: turnout.id,
+            address: turnout.turnout2Address,
+            channel: 1,
+          });
+        }
       } else if (isTurnoutElement(turnout) && turnout.turnoutAddress > 0) {
         result.push({
           value: `${turnout.id}:0`,
-          label: `Turnout #${turnout.turnoutAddress}${turnout.name && turnout.name !== "element" ? ` · ${turnout.name}` : ""}`,
+          label: `Turnout #${turnout.turnoutAddress}${
+            turnout.name && turnout.name !== "element" ? ` · ${turnout.name}` : ""
+          }`,
           id: turnout.id,
           address: turnout.turnoutAddress,
           channel: 0,
         });
       }
     }
+
     return result.sort((a, b) => a.address - b.address);
   }, [layout]);
 
-  const sensorOptions = useMemo<SensorOption[]>(() =>
-    layout.getAllElements()
-      .filter((element): element is TrackSensorElementView =>
-        element instanceof TrackSensorElementView && element.address > 0)
-      .map(sensor => ({
-        value: String(sensor.id),
-        label: `Sensor #${sensor.address}${sensor.name && sensor.name !== "element" ? ` · ${sensor.name}` : ""}`,
+  const sensorOptions = useMemo<SensorOption[]>(
+    () =>
+      layout
+        .getAllElements()
+        .filter(
+          (element): element is TrackSensorElementView =>
+            element instanceof TrackSensorElementView && element.address > 0
+        )
+        .map(sensor => ({
+          value: String(sensor.id),
+          label: `Sensor #${sensor.address}${
+            sensor.name && sensor.name !== "element" ? ` · ${sensor.name}` : ""
+          }`,
+          id: sensor.id,
+          address: sensor.address,
+        }))
+        .sort((a, b) => a.address - b.address),
+    [layout]
+  );
+
+  const document = useMemo<SignalLogicDocumentDto>(
+    () => ({
+      version: 3,
+      enabled: runtime.enabled,
+      groups,
+    }),
+    [groups, runtime.enabled]
+  );
+
+  const knownSignals = useMemo(
+    () =>
+      signalOptions.map(signal => ({
+        id: signal.id,
+        address: signal.address,
+        states: signal.states,
+      })),
+    [signalOptions]
+  );
+
+  const knownTurnouts = useMemo(
+    () =>
+      turnoutOptions.map(turnout => ({
+        id: turnout.id,
+        address: turnout.address,
+      })),
+    [turnoutOptions]
+  );
+
+  const knownSensors = useMemo(
+    () =>
+      sensorOptions.map(sensor => ({
         id: sensor.id,
         address: sensor.address,
-      }))
-      .sort((a, b) => a.address - b.address), [layout]);
+      })),
+    [sensorOptions]
+  );
 
-  const document = useMemo<SignalLogicDocumentDto>(() => ({
-    version: 3,
-    enabled: runtime.enabled,
-    groups,
-  }), [groups, runtime.enabled]);
-
-  const knownSignals = useMemo(() => signalOptions.map(signal => ({
-    id: signal.id,
-    address: signal.address,
-    states: signal.states,
-  })), [signalOptions]);
-  const knownTurnouts = useMemo(() => turnoutOptions.map(turnout => ({
-    id: turnout.id,
-    address: turnout.address,
-  })), [turnoutOptions]);
-  const knownSensors = useMemo(() => sensorOptions.map(sensor => ({ id: sensor.id, address: sensor.address })), [sensorOptions]);
-
-  const issues = useMemo(() => validateSignalLogicDocument(
-    document,
-    knownSignals,
-    knownTurnouts,
-    knownSensors,
-  ), [document, knownSignals, knownTurnouts, knownSensors]);
+  const issues = useMemo(
+    () =>
+      validateSignalLogicDocument(
+        document,
+        knownSignals,
+        knownTurnouts,
+        knownSensors
+      ),
+    [document, knownSignals, knownTurnouts, knownSensors]
+  );
 
   const allIssues = [...migrationIssues, ...issues];
   const hasErrors = allIssues.some(issue => issue.level === "error");
-  const selectedGroup = groups.find(group => group.id === selectedGroupId) ?? groups[0] ?? null;
+
+  const visibleGroups = useMemo(
+    () =>
+      isSignalScoped
+        ? groups.filter(group => group.signalId === signalId)
+        : groups,
+    [groups, isSignalScoped, signalId]
+  );
+
+  const selectedGroup =
+    visibleGroups.find(group => group.id === selectedGroupId) ??
+    visibleGroups[0] ??
+    null;
 
   const load = async (): Promise<void> => {
     setLoading(true);
     setError(null);
     setMessage(null);
+
     try {
       const result = await loadSignalLogicRulesWs();
-      const migration = migrateSignalLogicReferences(result.document, knownSignals, knownTurnouts, knownSensors);
+      const migration = migrateSignalLogicReferences(
+        result.document,
+        knownSignals,
+        knownTurnouts,
+        knownSensors
+      );
+
       setMigrationIssues(migration.issues);
+
       let loadedDocument = migration.document;
-      if (migration.migratedReferences > 0 && !migration.issues.some(issue => issue.level === "error")) {
+
+      if (
+        migration.migratedReferences > 0 &&
+        !migration.issues.some(issue => issue.level === "error")
+      ) {
         loadedDocument = (await saveSignalLogicRulesWs(migration.document)).document;
       }
+
       setGroups(loadedDocument.groups);
-      setSelectedGroupId(loadedDocument.groups[0]?.id ?? null);
+
+      const initialGroup = isSignalScoped
+        ? loadedDocument.groups.find(group => group.signalId === signalId)
+        : loadedDocument.groups[0];
+
+      setSelectedGroupId(initialGroup?.id ?? null);
       setRuntime(result.state);
-      setMessage(result.message ?? (migration.migratedReferences > 0
-        ? `${migration.migratedReferences} legacy reference(s) migrated to numeric layout IDs.`
-        : "Signal logic loaded."));
+      setMessage(
+        result.message ??
+          (migration.migratedReferences > 0
+            ? `${migration.migratedReferences} legacy reference(s) migrated to numeric layout IDs.`
+            : "Signal logic loaded.")
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -229,20 +342,73 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
     }
   };
 
+  const toggleGlobalAutomation = async (): Promise<void> => {
+    try {
+      const result = await loadSignalLogicRulesWs();
+      const enabled = !result.document.enabled;
+      const saved = await saveSignalLogicRulesWs({
+        ...result.document,
+        enabled,
+      });
+
+      setRuntime(saved.state);
+
+      showNotification({
+        color: enabled ? "green" : "gray",
+        title: "Signal automation",
+        message: enabled ? "Automation enabled." : "Automation disabled.",
+      });
+    } catch (toggleError) {
+      showNotification({
+        color: "red",
+        title: "Signal automation",
+        message:
+          toggleError instanceof Error
+            ? toggleError.message
+            : String(toggleError),
+      });
+    } finally {
+      onClose();
+    }
+  };
+
   useEffect(() => {
-    if (opened) void load();
+    if (!opened) {
+      toolbarToggleHandledRef.current = false;
+      return;
+    }
+
+    if (!isSignalScoped) {
+      if (toolbarToggleHandledRef.current) {
+        return;
+      }
+
+      toolbarToggleHandledRef.current = true;
+      void toggleGlobalAutomation();
+      return;
+    }
+
+    void load();
+
+    // The load/toggle functions intentionally use the option catalogues from
+    // the current render. Opening is the lifecycle boundary for this dialog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened]);
+  }, [opened, isSignalScoped, signalId]);
 
   const save = async (): Promise<void> => {
     setSaving(true);
     setError(null);
     setMessage(null);
+
     try {
       const result = await saveSignalLogicRulesWs(document);
       setGroups(result.document.groups);
       setRuntime(result.state);
-      setMessage(result.state.running ? "Rules saved. Signal logic is running." : "Rules saved. Signal logic is disabled.");
+      setMessage(
+        result.state.running
+          ? "Rules saved. Signal logic is running."
+          : "Rules saved. Signal logic is disabled."
+      );
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));
     } finally {
@@ -250,93 +416,218 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
     }
   };
 
-  const updateGroup = (groupId: string, update: (group: SignalLogicRuleGroupDto) => SignalLogicRuleGroupDto): void => {
+  const updateGroup = (
+    groupId: string,
+    update: (group: SignalLogicRuleGroupDto) => SignalLogicRuleGroupDto
+  ): void => {
     setMessage(null);
-    setGroups(current => current.map(group => group.id === groupId ? update(group) : group));
+    setGroups(current =>
+      current.map(group => (group.id === groupId ? update(group) : group))
+    );
   };
-  const updateRule = (groupId: string, ruleId: string, update: (rule: SignalLogicRuleDto) => SignalLogicRuleDto): void =>
+
+  const updateRule = (
+    groupId: string,
+    ruleId: string,
+    update: (rule: SignalLogicRuleDto) => SignalLogicRuleDto
+  ): void =>
     updateGroup(groupId, group => ({
       ...group,
-      rules: group.rules.map(rule => rule.id === ruleId ? update(rule) : rule),
+      rules: group.rules.map(rule => (rule.id === ruleId ? update(rule) : rule)),
     }));
+
   const updateCondition = (
     groupId: string,
     ruleId: string,
     conditionId: string,
-    update: (condition: SignalLogicConditionDto) => SignalLogicConditionDto,
-  ): void => updateRule(groupId, ruleId, rule => ({
-    ...rule,
-    conditions: rule.conditions.map(condition => condition.id === conditionId ? update(condition) : condition),
-  }));
+    update: (condition: SignalLogicConditionDto) => SignalLogicConditionDto
+  ): void =>
+    updateRule(groupId, ruleId, rule => ({
+      ...rule,
+      conditions: rule.conditions.map(condition =>
+        condition.id === conditionId ? update(condition) : condition
+      ),
+    }));
 
   const addGroup = (): void => {
-    if (groups.length >= MAX_GROUPS) return;
+    if (groups.length >= MAX_GROUPS) {
+      return;
+    }
+
     const used = new Set(groups.map(group => group.signalId));
-    const signal = signalOptions.find(item => !used.has(item.id));
+
+    const signal = isSignalScoped
+      ? signalOptions.find(item => item.id === signalId && !used.has(item.id))
+      : signalOptions.find(item => !used.has(item.id));
+
     const firstState = signal?.states[0];
-    if (!signal || !firstState) return;
+
+    if (!signal || !firstState) {
+      return;
+    }
+
     const group: SignalLogicRuleGroupDto = {
       id: generateId(),
       signalId: signal.id,
       defaultStateId: firstState.id,
       rules: [],
     };
+
     setGroups(current => [...current, group]);
     setSelectedGroupId(group.id);
   };
 
   const addRule = (group: SignalLogicRuleGroupDto): void => {
-    if (group.rules.length >= MAX_RULES) return;
+    if (group.rules.length >= MAX_RULES) {
+      return;
+    }
+
     const signal = signalOptions.find(item => item.id === group.signalId);
     const firstTurnout = turnoutOptions[0];
+
     updateGroup(group.id, current => ({
       ...current,
-      rules: [...current.rules, {
-        id: generateId(),
-        stateId: signal?.states[0]?.id ?? "",
-        conditions: firstTurnout ? [newTurnoutCondition(firstTurnout)] : [],
-      }],
+      rules: [
+        ...current.rules,
+        {
+          id: generateId(),
+          stateId: signal?.states[0]?.id ?? "",
+          conditions: firstTurnout ? [newTurnoutCondition(firstTurnout)] : [],
+        },
+      ],
     }));
   };
 
-  const deleteGroup = (groupId: string): void => setGroups(current => {
-    const next = current.filter(group => group.id !== groupId);
-    setSelectedGroupId(next[0]?.id ?? null);
-    return next;
-  });
+  const deleteGroup = (groupId: string): void =>
+    setGroups(current => {
+      const next = current.filter(group => group.id !== groupId);
 
-  const signalForGroup = selectedGroup ? signalOptions.find(signal => signal.id === selectedGroup.signalId) : undefined;
-  const availableSignals = signalOptions.filter(option =>
-    !groups.some(group => group.id !== selectedGroup?.id && group.signalId === option.id));
+      const nextVisible = isSignalScoped
+        ? next.filter(group => group.signalId === signalId)
+        : next;
+
+      setSelectedGroupId(nextVisible[0]?.id ?? null);
+      return next;
+    });
+
+  const signalForGroup = selectedGroup
+    ? signalOptions.find(signal => signal.id === selectedGroup.signalId)
+    : undefined;
+
+  const availableSignals = isSignalScoped
+    ? signalOptions.filter(option => option.id === signalId)
+    : signalOptions.filter(
+        option =>
+          !groups.some(
+            group =>
+              group.id !== selectedGroup?.id &&
+              group.signalId === option.id
+          )
+      );
+
+  const scopedSignal = isSignalScoped
+    ? signalOptions.find(option => option.id === signalId)
+    : undefined;
+
+  if (!isSignalScoped) {
+    // Toolbar mode deliberately has no common editor UI anymore.
+    return null;
+  }
 
   return (
-    <AppModal opened={opened} onClose={onClose} title="Signal logic" size={1150} centered draggable>
+    <AppModal
+      opened={opened}
+      onClose={onClose}
+      title={
+        scopedSignal
+          ? `Signal automation · ${scopedSignal.label}`
+          : "Signal automation"
+      }
+      size={1150}
+      centered
+      draggable
+    >
       <Stack gap="sm">
         <Group justify="space-between" wrap="wrap">
           <div>
             <Text fw={700}>Automatic signal states</Text>
-            <Text size="sm" c="dimmed">First matching rule wins. If none match, the configured default state is used.</Text>
+            <Text size="sm" c="dimmed">
+              First matching rule wins. If none match, the configured default
+              state is used.
+            </Text>
           </div>
+
           <Group gap="xs">
-            <Badge color={runtime.running ? "green" : "gray"} variant="light">
+            <Badge
+              color={runtime.running ? "green" : "gray"}
+              variant="light"
+            >
               {runtime.running ? "RUNNING" : "STOPPED"}
             </Badge>
+<<<<<<< HEAD
             <Switch checked={runtime.enabled} label="Enabled" onChange={event => {
               const { checked } = event.currentTarget;
               setRuntime(current => ({ ...current, enabled: checked }));
             }} />
             <ActionIcon variant="light" title="Reload" onClick={() => void load()}><IconRefresh size={16} /></ActionIcon>
             <Button size="xs" leftSection={<IconDeviceFloppy size={16} />} loading={saving} disabled={hasErrors} onClick={() => void save()}>
+=======
+
+            <Switch
+              checked={runtime.enabled}
+              label="Enabled"
+              onChange={event => {
+                const { checked } = event.currentTarget;
+                setRuntime(current => ({
+                  ...current,
+                  enabled: checked,
+                }));
+              }}
+            />
+
+            <ActionIcon
+              variant="light"
+              title="Reload"
+              onClick={() => void load()}
+            >
+              <IconRefresh size={16} />
+            </ActionIcon>
+
+            <Button
+              size="xs"
+              leftSection={<IconDeviceFloppy size={16} />}
+              loading={saving}
+              disabled={hasErrors}
+              onClick={() => void save()}
+            >
+>>>>>>> 9f02daa (Signal Aut)
               Save
             </Button>
           </Group>
         </Group>
 
-        {loading && <Group><Loader size="sm" /><Text size="sm">Loading signal rules…</Text></Group>}
-        {error && <Alert color="red" icon={<IconAlertTriangle size={16} />}>{error}</Alert>}
+        {loading && (
+          <Group>
+            <Loader size="sm" />
+            <Text size="sm">Loading signal rules…</Text>
+          </Group>
+        )}
+
+        {error && (
+          <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+            {error}
+          </Alert>
+        )}
+
         {message && <Alert color="blue">{message}</Alert>}
+
         {allIssues.map((issue, index) => (
-          <Alert key={`${issue.groupId ?? "global"}-${issue.ruleId ?? ""}-${issue.conditionId ?? ""}-${index}`} color={issue.level === "error" ? "red" : "yellow"}>
+          <Alert
+            key={`${issue.groupId ?? "global"}-${issue.ruleId ?? ""}-${
+              issue.conditionId ?? ""
+            }-${index}`}
+            color={issue.level === "error" ? "red" : "yellow"}
+          >
             {issue.message}
           </Alert>
         ))}
@@ -345,12 +636,23 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
           <Stack w={300} gap="xs">
             <Group justify="space-between">
               <Title order={5}>Signals</Title>
-              <ActionIcon variant="light" disabled={groups.length >= MAX_GROUPS || signalOptions.length <= groups.length} onClick={addGroup}>
+              <ActionIcon
+                variant="light"
+                disabled={
+                  groups.length >= MAX_GROUPS ||
+                  !scopedSignal ||
+                  visibleGroups.length > 0
+                }
+                onClick={addGroup}
+                title="Add automation for this signal"
+              >
                 <IconPlus size={16} />
               </ActionIcon>
             </Group>
+
             <ScrollArea h={520}>
               <Stack gap="xs">
+<<<<<<< HEAD
                 {groups.map(group => {
                   const signal = signalOptions.find(option => option.id === group.signalId);
                   const selected = group.id === selectedGroup?.id;
@@ -365,6 +667,25 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                     : {
                       style: { cursor: "pointer" },
                     };
+=======
+                {visibleGroups.map(group => {
+                  const signal = signalOptions.find(
+                    option => option.id === group.signalId
+                  );
+                  const selected = group.id === selectedGroup?.id;
+                  const selectedCardProps = selected
+                    ? {
+                        bg: "lime.0" as const,
+                        style: {
+                          cursor: "pointer",
+                          borderColor: "var(--mantine-color-lime-6)",
+                        },
+                      }
+                    : {
+                        style: { cursor: "pointer" },
+                      };
+
+>>>>>>> 9f02daa (Signal Aut)
                   return (
                     <Card
                       key={group.id}
@@ -374,8 +695,25 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                       onClick={() => setSelectedGroupId(group.id)}
                     >
                       <Group justify="space-between" wrap="nowrap">
+<<<<<<< HEAD
                         <Text fw={selected ? 700 : 400}>{signal?.label ?? `Missing signal ID ${group.signalId}`}</Text>
                         <ActionIcon color="red" variant="subtle" onClick={event => { event.stopPropagation(); deleteGroup(group.id); }}>
+=======
+                        <Text fw={selected ? 700 : 400}>
+                          {signal?.label ??
+                            `Missing signal ID ${group.signalId}`}
+                        </Text>
+
+                        <ActionIcon
+                          color="red"
+                          variant="subtle"
+                          onClick={event => {
+                            event.stopPropagation();
+                            deleteGroup(group.id);
+                          }}
+                          title="Remove automation for this signal"
+                        >
+>>>>>>> 9f02daa (Signal Aut)
                           <IconTrash size={15} />
                         </ActionIcon>
                       </Group>
@@ -388,39 +726,74 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
 
           <Stack style={{ flex: 1 }} gap="sm">
             {!selectedGroup ? (
-              <Text c="dimmed">Add a signal rule group.</Text>
+              <Text c="dimmed">
+                Add an automation rule group for this signal.
+              </Text>
             ) : (
               <>
                 <Select
                   label="Signal"
                   data={availableSignals}
                   value={String(selectedGroup.signalId)}
+                  disabled
                   onChange={value => {
                     const id = parseLayoutId(value);
-                    const selected = signalOptions.find(option => option.id === id);
-                    if (!selected) return;
+                    const selected = signalOptions.find(
+                      option => option.id === id
+                    );
+
+                    if (!selected) {
+                      return;
+                    }
+
                     updateGroup(selectedGroup.id, group => ({
                       ...group,
                       signalId: id,
                       defaultStateId: selected.states[0]?.id ?? "",
-                      rules: group.rules.map(rule => ({ ...rule, stateId: selected.states[0]?.id ?? "" })),
+                      rules: group.rules.map(rule => ({
+                        ...rule,
+                        stateId: selected.states[0]?.id ?? "",
+                      })),
                     }));
                   }}
                 />
+
                 <Select
                   label="Default state"
                   data={stateOptions(signalForGroup)}
                   value={selectedGroup.defaultStateId}
-                  onChange={value => value !== null && updateGroup(selectedGroup.id, group => ({ ...group, defaultStateId: value }))}
+                  onChange={value =>
+                    value !== null &&
+                    updateGroup(selectedGroup.id, group => ({
+                      ...group,
+                      defaultStateId: value,
+                    }))
+                  }
                 />
+
                 <Group justify="space-between">
                   <Title order={5}>Rules</Title>
-                  <Button size="xs" variant="light" leftSection={<IconPlus size={14} />} disabled={selectedGroup.rules.length >= MAX_RULES} onClick={() => addRule(selectedGroup)}>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    leftSection={<IconPlus size={14} />}
+                    disabled={selectedGroup.rules.length >= MAX_RULES}
+                    onClick={() => addRule(selectedGroup)}
+                  >
                     Add rule
                   </Button>
                 </Group>
 
+<<<<<<< HEAD
                 <Table striped highlightOnHover withTableBorder withColumnBorders>
+=======
+                <Table
+                  striped
+                  highlightOnHover
+                  withTableBorder
+                  withColumnBorders
+                >
+>>>>>>> 9f02daa (Signal Aut)
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th w={72}>Rule</Table.Th>
@@ -429,17 +802,26 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                       <Table.Th w={92} />
                     </Table.Tr>
                   </Table.Thead>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 9f02daa (Signal Aut)
                   <Table.Tbody>
                     {selectedGroup.rules.map((rule, ruleIndex) => (
                       <Table.Tr key={rule.id}>
                         <Table.Td>
                           <Badge variant="light">#{ruleIndex + 1}</Badge>
                         </Table.Td>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 9f02daa (Signal Aut)
                         <Table.Td>
                           <Select
                             size="xs"
                             data={stateOptions(signalForGroup)}
                             value={rule.stateId}
+<<<<<<< HEAD
                             onChange={value => value !== null && updateRule(selectedGroup.id, rule.id, current => ({ ...current, stateId: value }))}
                           />
                         </Table.Td>
@@ -511,24 +893,302 @@ export default function SignalLogicDialog({ opened, onClose, layout }: SignalLog
                                 </Box>
                               );
                             })}
+=======
+                            onChange={value =>
+                              value !== null &&
+                              updateRule(
+                                selectedGroup.id,
+                                rule.id,
+                                current => ({
+                                  ...current,
+                                  stateId: value,
+                                })
+                              )
+                            }
+                          />
+                        </Table.Td>
+
+                        <Table.Td>
+                          <Stack gap={6}>
+                            {rule.conditions.map(
+                              (condition, conditionIndex) => {
+                                const isSensorCondition =
+                                  condition.type === "sensor";
+
+                                const conditionValue = isSensorCondition
+                                  ? String(condition.sensorId)
+                                  : `${condition.turnoutId}:${
+                                      condition.turnoutChannel ?? 0
+                                    }`;
+
+                                return (
+                                  <Box
+                                    key={condition.id}
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns:
+                                        "72px 120px minmax(180px, 1fr) 118px 28px",
+                                      gap: 6,
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <Text size="xs" c="dimmed">
+                                      Cond {conditionIndex + 1}
+                                    </Text>
+
+                                    <Select
+                                      size="xs"
+                                      data={[
+                                        {
+                                          value: "turnout",
+                                          label: "Turnout",
+                                        },
+                                        {
+                                          value: "sensor",
+                                          label: "Sensor",
+                                        },
+                                      ]}
+                                      value={condition.type}
+                                      onChange={type => {
+                                        if (
+                                          type === "sensor" &&
+                                          sensorOptions[0]
+                                        ) {
+                                          updateCondition(
+                                            selectedGroup.id,
+                                            rule.id,
+                                            condition.id,
+                                            () => ({
+                                              ...newSensorCondition(
+                                                sensorOptions[0]!
+                                              ),
+                                              id: condition.id,
+                                            })
+                                          );
+                                        } else if (
+                                          type === "turnout" &&
+                                          turnoutOptions[0]
+                                        ) {
+                                          updateCondition(
+                                            selectedGroup.id,
+                                            rule.id,
+                                            condition.id,
+                                            () => ({
+                                              ...newTurnoutCondition(
+                                                turnoutOptions[0]!
+                                              ),
+                                              id: condition.id,
+                                            })
+                                          );
+                                        }
+                                      }}
+                                    />
+
+                                    <Select
+                                      size="xs"
+                                      data={
+                                        isSensorCondition
+                                          ? sensorOptions
+                                          : turnoutOptions
+                                      }
+                                      value={conditionValue}
+                                      searchable
+                                      onChange={value => {
+                                        if (isSensorCondition) {
+                                          const id = parseLayoutId(value);
+                                          const option = sensorOptions.find(
+                                            item => item.id === id
+                                          );
+
+                                          if (option) {
+                                            updateCondition(
+                                              selectedGroup.id,
+                                              rule.id,
+                                              condition.id,
+                                              current =>
+                                                current.type === "sensor"
+                                                  ? {
+                                                      ...current,
+                                                      sensorId: option.id,
+                                                      sensorAddress:
+                                                        option.address,
+                                                    }
+                                                  : current
+                                            );
+                                          }
+                                        } else {
+                                          const option =
+                                            turnoutOptions.find(
+                                              item => item.value === value
+                                            );
+
+                                          if (option) {
+                                            updateCondition(
+                                              selectedGroup.id,
+                                              rule.id,
+                                              condition.id,
+                                              current =>
+                                                current.type === "turnout"
+                                                  ? {
+                                                      ...current,
+                                                      turnoutId: option.id,
+                                                      turnoutChannel:
+                                                        option.channel,
+                                                      turnoutAddress:
+                                                        option.address,
+                                                    }
+                                                  : current
+                                            );
+                                          }
+                                        }
+                                      }}
+                                    />
+
+                                    <Select
+                                      size="xs"
+                                      data={
+                                        isSensorCondition
+                                          ? [
+                                              {
+                                                value: "1",
+                                                label: "Active",
+                                              },
+                                              {
+                                                value: "0",
+                                                label: "Inactive",
+                                              },
+                                            ]
+                                          : [
+                                              {
+                                                value: "1",
+                                                label: "Closed",
+                                              },
+                                              {
+                                                value: "0",
+                                                label: "Thrown",
+                                              },
+                                            ]
+                                      }
+                                      value={
+                                        (
+                                          isSensorCondition
+                                            ? condition.active
+                                            : condition.closed
+                                        )
+                                          ? "1"
+                                          : "0"
+                                      }
+                                      onChange={value =>
+                                        updateCondition(
+                                          selectedGroup.id,
+                                          rule.id,
+                                          condition.id,
+                                          current => {
+                                            const active = value === "1";
+
+                                            return current.type === "sensor"
+                                              ? { ...current, active }
+                                              : {
+                                                  ...current,
+                                                  closed: active,
+                                                };
+                                          }
+                                        )
+                                      }
+                                    />
+
+                                    <ActionIcon
+                                      size="sm"
+                                      color="red"
+                                      variant="subtle"
+                                      onClick={() =>
+                                        updateRule(
+                                          selectedGroup.id,
+                                          rule.id,
+                                          current => ({
+                                            ...current,
+                                            conditions:
+                                              current.conditions.filter(
+                                                item =>
+                                                  item.id !== condition.id
+                                              ),
+                                          })
+                                        )
+                                      }
+                                    >
+                                      <IconTrash size={14} />
+                                    </ActionIcon>
+                                  </Box>
+                                );
+                              }
+                            )}
+
+>>>>>>> 9f02daa (Signal Aut)
                             <Button
                               size="compact-xs"
                               variant="subtle"
                               leftSection={<IconPlus size={13} />}
+<<<<<<< HEAD
                               disabled={rule.conditions.length >= MAX_CONDITIONS || (turnoutOptions.length === 0 && sensorOptions.length === 0)}
                               onClick={() => updateRule(selectedGroup.id, rule.id, current => ({
                                 ...current,
                                 conditions: [...current.conditions,
                                 turnoutOptions[0] ? newTurnoutCondition(turnoutOptions[0]) : newSensorCondition(sensorOptions[0]!)],
                               }))}
+=======
+                              disabled={
+                                rule.conditions.length >= MAX_CONDITIONS ||
+                                (turnoutOptions.length === 0 &&
+                                  sensorOptions.length === 0)
+                              }
+                              onClick={() =>
+                                updateRule(
+                                  selectedGroup.id,
+                                  rule.id,
+                                  current => ({
+                                    ...current,
+                                    conditions: [
+                                      ...current.conditions,
+                                      turnoutOptions[0]
+                                        ? newTurnoutCondition(
+                                            turnoutOptions[0]
+                                          )
+                                        : newSensorCondition(
+                                            sensorOptions[0]!
+                                          ),
+                                    ],
+                                  })
+                                )
+                              }
+>>>>>>> 9f02daa (Signal Aut)
                             >
                               Add condition
                             </Button>
                           </Stack>
                         </Table.Td>
+<<<<<<< HEAD
                         <Table.Td>
                           <ActionIcon color="red" variant="subtle" onClick={() =>
                             updateGroup(selectedGroup.id, group => ({ ...group, rules: group.rules.filter(item => item.id !== rule.id) }))}>
+=======
+
+                        <Table.Td>
+                          <ActionIcon
+                            color="red"
+                            variant="subtle"
+                            onClick={() =>
+                              updateGroup(
+                                selectedGroup.id,
+                                group => ({
+                                  ...group,
+                                  rules: group.rules.filter(
+                                    item => item.id !== rule.id
+                                  ),
+                                })
+                              )
+                            }
+                          >
+>>>>>>> 9f02daa (Signal Aut)
                             <IconTrash size={15} />
                           </ActionIcon>
                         </Table.Td>
