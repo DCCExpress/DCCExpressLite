@@ -564,14 +564,6 @@ export default function SignalLogicDialog({
             >
               {runtime.running ? "RUNNING" : "STOPPED"}
             </Badge>
-<<<<<<< HEAD
-            <Switch checked={runtime.enabled} label="Enabled" onChange={event => {
-              const { checked } = event.currentTarget;
-              setRuntime(current => ({ ...current, enabled: checked }));
-            }} />
-            <ActionIcon variant="light" title="Reload" onClick={() => void load()}><IconRefresh size={16} /></ActionIcon>
-            <Button size="xs" leftSection={<IconDeviceFloppy size={16} />} loading={saving} disabled={hasErrors} onClick={() => void save()}>
-=======
 
             <Switch
               checked={runtime.enabled}
@@ -600,7 +592,6 @@ export default function SignalLogicDialog({
               disabled={hasErrors}
               onClick={() => void save()}
             >
->>>>>>> 9f02daa (Signal Aut)
               Save
             </Button>
           </Group>
@@ -652,22 +643,6 @@ export default function SignalLogicDialog({
 
             <ScrollArea h={520}>
               <Stack gap="xs">
-<<<<<<< HEAD
-                {groups.map(group => {
-                  const signal = signalOptions.find(option => option.id === group.signalId);
-                  const selected = group.id === selectedGroup?.id;
-                  const selectedCardProps = selected
-                    ? {
-                      bg: "lime.0" as const,
-                      style: {
-                        cursor: "pointer",
-                        borderColor: "var(--mantine-color-lime-6)",
-                      },
-                    }
-                    : {
-                      style: { cursor: "pointer" },
-                    };
-=======
                 {visibleGroups.map(group => {
                   const signal = signalOptions.find(
                     option => option.id === group.signalId
@@ -685,7 +660,6 @@ export default function SignalLogicDialog({
                         style: { cursor: "pointer" },
                       };
 
->>>>>>> 9f02daa (Signal Aut)
                   return (
                     <Card
                       key={group.id}
@@ -695,10 +669,6 @@ export default function SignalLogicDialog({
                       onClick={() => setSelectedGroupId(group.id)}
                     >
                       <Group justify="space-between" wrap="nowrap">
-<<<<<<< HEAD
-                        <Text fw={selected ? 700 : 400}>{signal?.label ?? `Missing signal ID ${group.signalId}`}</Text>
-                        <ActionIcon color="red" variant="subtle" onClick={event => { event.stopPropagation(); deleteGroup(group.id); }}>
-=======
                         <Text fw={selected ? 700 : 400}>
                           {signal?.label ??
                             `Missing signal ID ${group.signalId}`}
@@ -713,7 +683,6 @@ export default function SignalLogicDialog({
                           }}
                           title="Remove automation for this signal"
                         >
->>>>>>> 9f02daa (Signal Aut)
                           <IconTrash size={15} />
                         </ActionIcon>
                       </Group>
@@ -784,16 +753,12 @@ export default function SignalLogicDialog({
                   </Button>
                 </Group>
 
-<<<<<<< HEAD
-                <Table striped highlightOnHover withTableBorder withColumnBorders>
-=======
                 <Table
                   striped
                   highlightOnHover
                   withTableBorder
                   withColumnBorders
                 >
->>>>>>> 9f02daa (Signal Aut)
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th w={72}>Rule</Table.Th>
@@ -802,98 +767,19 @@ export default function SignalLogicDialog({
                       <Table.Th w={92} />
                     </Table.Tr>
                   </Table.Thead>
-<<<<<<< HEAD
-=======
 
->>>>>>> 9f02daa (Signal Aut)
                   <Table.Tbody>
                     {selectedGroup.rules.map((rule, ruleIndex) => (
                       <Table.Tr key={rule.id}>
                         <Table.Td>
                           <Badge variant="light">#{ruleIndex + 1}</Badge>
                         </Table.Td>
-<<<<<<< HEAD
-=======
 
->>>>>>> 9f02daa (Signal Aut)
                         <Table.Td>
                           <Select
                             size="xs"
                             data={stateOptions(signalForGroup)}
                             value={rule.stateId}
-<<<<<<< HEAD
-                            onChange={value => value !== null && updateRule(selectedGroup.id, rule.id, current => ({ ...current, stateId: value }))}
-                          />
-                        </Table.Td>
-                        <Table.Td>
-                          <Stack gap={6}>
-                            {rule.conditions.map((condition, conditionIndex) => {
-                              const isSensorCondition = condition.type === "sensor";
-                              const conditionValue = isSensorCondition
-                                ? String(condition.sensorId)
-                                : `${condition.turnoutId}:${condition.turnoutChannel ?? 0}`;
-                              return (
-                                <Box
-                                  key={condition.id}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "72px 120px minmax(180px, 1fr) 118px 28px",
-                                    gap: 6,
-                                    alignItems: "center",
-                                  }}
-                                >
-                                  <Text size="xs" c="dimmed">Cond {conditionIndex + 1}</Text>
-                                  <Select
-                                    size="xs"
-                                    data={[{ value: "turnout", label: "Turnout" }, { value: "sensor", label: "Sensor" }]}
-                                    value={condition.type}
-                                    onChange={type => {
-                                      if (type === "sensor" && sensorOptions[0]) {
-                                        updateCondition(selectedGroup.id, rule.id, condition.id, () => ({ ...newSensorCondition(sensorOptions[0]!), id: condition.id }));
-                                      } else if (type === "turnout" && turnoutOptions[0]) {
-                                        updateCondition(selectedGroup.id, rule.id, condition.id, () => ({ ...newTurnoutCondition(turnoutOptions[0]!), id: condition.id }));
-                                      }
-                                    }}
-                                  />
-                                  <Select
-                                    size="xs"
-                                    data={isSensorCondition ? sensorOptions : turnoutOptions}
-                                    value={conditionValue}
-                                    searchable
-                                    onChange={value => {
-                                      if (isSensorCondition) {
-                                        const id = parseLayoutId(value);
-                                        const option = sensorOptions.find(item => item.id === id);
-                                        if (option) updateCondition(selectedGroup.id, rule.id, condition.id, current => current.type === "sensor"
-                                          ? { ...current, sensorId: option.id, sensorAddress: option.address }
-                                          : current);
-                                      } else {
-                                        const option = turnoutOptions.find(item => item.value === value);
-                                        if (option) updateCondition(selectedGroup.id, rule.id, condition.id, current => current.type === "turnout"
-                                          ? { ...current, turnoutId: option.id, turnoutChannel: option.channel, turnoutAddress: option.address }
-                                          : current);
-                                      }
-                                    }}
-                                  />
-                                  <Select
-                                    size="xs"
-                                    data={isSensorCondition
-                                      ? [{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }]
-                                      : [{ value: "1", label: "Closed" }, { value: "0", label: "Thrown" }]}
-                                    value={(isSensorCondition ? condition.active : condition.closed) ? "1" : "0"}
-                                    onChange={value => updateCondition(selectedGroup.id, rule.id, condition.id, current => {
-                                      const active = value === "1";
-                                      return current.type === "sensor" ? { ...current, active } : { ...current, closed: active };
-                                    })}
-                                  />
-                                  <ActionIcon size="sm" color="red" variant="subtle" onClick={() =>
-                                    updateRule(selectedGroup.id, rule.id, current => ({ ...current, conditions: current.conditions.filter(item => item.id !== condition.id) }))}>
-                                    <IconTrash size={14} />
-                                  </ActionIcon>
-                                </Box>
-                              );
-                            })}
-=======
                             onChange={value =>
                               value !== null &&
                               updateRule(
@@ -1123,19 +1009,10 @@ export default function SignalLogicDialog({
                               }
                             )}
 
->>>>>>> 9f02daa (Signal Aut)
                             <Button
                               size="compact-xs"
                               variant="subtle"
                               leftSection={<IconPlus size={13} />}
-<<<<<<< HEAD
-                              disabled={rule.conditions.length >= MAX_CONDITIONS || (turnoutOptions.length === 0 && sensorOptions.length === 0)}
-                              onClick={() => updateRule(selectedGroup.id, rule.id, current => ({
-                                ...current,
-                                conditions: [...current.conditions,
-                                turnoutOptions[0] ? newTurnoutCondition(turnoutOptions[0]) : newSensorCondition(sensorOptions[0]!)],
-                              }))}
-=======
                               disabled={
                                 rule.conditions.length >= MAX_CONDITIONS ||
                                 (turnoutOptions.length === 0 &&
@@ -1160,17 +1037,11 @@ export default function SignalLogicDialog({
                                   })
                                 )
                               }
->>>>>>> 9f02daa (Signal Aut)
                             >
                               Add condition
                             </Button>
                           </Stack>
                         </Table.Td>
-<<<<<<< HEAD
-                        <Table.Td>
-                          <ActionIcon color="red" variant="subtle" onClick={() =>
-                            updateGroup(selectedGroup.id, group => ({ ...group, rules: group.rules.filter(item => item.id !== rule.id) }))}>
-=======
 
                         <Table.Td>
                           <ActionIcon
@@ -1188,7 +1059,6 @@ export default function SignalLogicDialog({
                               )
                             }
                           >
->>>>>>> 9f02daa (Signal Aut)
                             <IconTrash size={15} />
                           </ActionIcon>
                         </Table.Td>
